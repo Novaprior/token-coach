@@ -39,6 +39,10 @@ In the desktop app, where `/plugin` does not run: click **+** next to the prompt
 - **Turn it off:** `claude plugin disable token-coach@novaprior` (back on: `enable`), or in the app's plugin manager.
 - **Uninstall:** `claude plugin uninstall token-coach@novaprior`, then `claude plugin marketplace remove novaprior`.
 
+## Support
+
+Token-Coach is provided as is, without support. Issues and messages are not monitored, and there is no promise of fixes or updates. You are welcome to fork it under the MIT License.
+
 ## License
 
 Free and open source under the [MIT License](LICENSE.md). Every feature is available to everyone; no key, no account, no data leaves Claude Code.

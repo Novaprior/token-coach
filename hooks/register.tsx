@@ -360,12 +360,17 @@ export const register: Register = on => {
     return marks.length > 0 ? { ...box, decorations: [...(box.decorations ?? []), ...marks] } : box
   })
 
+  // Bookkeeping around a submission or a compaction never holds it up.
   on('prompt.submit', async ($, e, next) => {
     draftSeq++
-    await update($, inlineHint, () => null)
-    await update($, draft, () => null)
-    await update($, suggestion, () => null)
-    await update($, draftDismissed, () => null)
+    try {
+      await update($, inlineHint, () => null)
+      await update($, draft, () => null)
+      await update($, suggestion, () => null)
+      await update($, draftDismissed, () => null)
+    } catch {
+      // the panel is only behind
+    }
 
     return next(e)
   })
@@ -432,12 +437,16 @@ export const register: Register = on => {
   on('session.compact', async ($, e, next) => {
     const result = await next(e)
     if (e.agentId !== undefined) return result
-    if (e.trigger === 'manual' && result.skip === undefined) {
-      await update($, lastCompact, () => ({ before: result.tokensBefore, after: result.tokensAfter }))
-      await recordCompaction($, result)
+    try {
+      if (e.trigger === 'manual' && result.skip === undefined) {
+        await update($, lastCompact, () => ({ before: result.tokensBefore, after: result.tokensAfter }))
+        await recordCompaction($, result)
+      }
+      if (e.trigger === 'auto' && result.skip === undefined) await update($, perRequest, () => 0)
+      if (e.trigger !== 'precompute') await applyCompaction($, result)
+    } catch {
+      // the figures are only behind
     }
-    if (e.trigger === 'auto' && result.skip === undefined) await update($, perRequest, () => 0)
-    if (e.trigger !== 'precompute') await applyCompaction($, result)
 
     return result
   })
