@@ -30,7 +30,7 @@ import {
   forecastAt,
   recentPace,
   windowLength,
-  fmtTokens,
+  fmtCount,
   fmtUsd,
   inputTokens,
   limitColor,
@@ -170,7 +170,7 @@ async function improveDraft($: EngineInterface) {
   const r = await $.model.complete({ model: 'haiku', system: IMPROVE_SYSTEM, prompt: text, maxTokens: 800, timeoutMs: 30_000 })
   await update($, suggestion, (): Suggestion =>
     r.isAnswered
-      ? { status: 'done', text: r.text.trim(), note: `Cost: ${fmtTokens(r.usage.input_tokens + r.usage.output_tokens)} tokens (Haiku)` }
+      ? { status: 'done', text: r.text.trim(), note: `Cost: ${fmtCount(r.usage.input_tokens + r.usage.output_tokens)} tokens (Haiku)` }
       : { status: 'error', note: 'Improving did not work. Please try again.' },
   )
 }
@@ -473,7 +473,7 @@ export const register: Register = on => {
       if (compactToastAt !== level) {
         compactToastAt = level
         const savings = estimateSavings(snap.tokens, s.expectedTurns)
-        $.ui.toast(`Context ${snap.percent} %: compacting saves ≈ ${fmtTokens(savings.perTurn)} tokens per message`, { timeoutMs: 8000 })
+        $.ui.toast(`Context ${snap.percent} %: compacting saves ≈ ${fmtCount(savings.perTurn)} tokens per message`, { timeoutMs: 8000 })
       }
     }
 
@@ -506,7 +506,7 @@ export const register: Register = on => {
       return (
         <Box gap={1} alignItems="center" flexWrap="wrap">
           <Text color="warning" bold>{isNew ? '● New chat?' : '● Compact first?'}</Text>
-          <Text>{`${live.reason ?? ''} Saves ≈ ${fmtTokens(live.savingPerRequest ?? 0)} tokens per request.`}</Text>
+          <Text>{`${live.reason ?? ''} Saves ≈ ${fmtCount(live.savingPerRequest ?? 0)} tokens per request.`}</Text>
           {isNew ? (
             <Button key="band-new-chat" label="New chat" variant="primary" onPress={() => void startNewChat($)} />
           ) : (
@@ -530,7 +530,7 @@ export const register: Register = on => {
     return (
       <Box gap={1} alignItems="center">
         <Text color="warning" bold>● Context {percent} %</Text>
-        <Text>Compacting saves ≈ {fmtTokens(savings.perTurn)} tokens per message</Text>
+        <Text>Compacting saves ≈ {fmtCount(savings.perTurn)} tokens per message</Text>
         <Button key="band-compact" label="Compact" variant="primary" onPress={() => void compactNow($)} />
         <Button key="band-later" label="Later" onPress={() => void update($, bandDismissedAt, () => percent)} />
       </Box>
@@ -595,8 +595,8 @@ export const register: Register = on => {
             {live.advice === 'newChat' ? 'Better in a new chat' : live.advice === 'compactFirst' ? 'Compact first' : 'Fits this chat'}
           </Text>
           {live.reason && <Text>{live.reason}</Text>}
-          {live.savingPerRequest !== undefined && <Text size="caption" dimColor>{`Saves ≈ ${fmtTokens(live.savingPerRequest)} tokens per request`}</Text>}
-          <Text size="caption" dimColor>{`Draft ≈ ${fmtTokens(live.tokens)} tokens`}</Text>
+          {live.savingPerRequest !== undefined && <Text size="caption" dimColor>{`Saves ≈ ${fmtCount(live.savingPerRequest)} tokens per request`}</Text>}
+          <Text size="caption" dimColor>{`Draft ≈ ${fmtCount(live.tokens)} tokens`}</Text>
           {live.advice === 'newChat' && <Button key="live-new-chat" label="New chat, keep the draft" variant="primary" onPress={() => void startNewChat($)} />}
           {live.advice === 'compactFirst' && <Button key="live-compact" label="Compact now" variant="primary" onPress={() => void compactNow($)} />}
         </Box>
@@ -664,7 +664,7 @@ export const register: Register = on => {
         <Box key={key} flexDirection="column" alignItems="center" flexGrow={1}>
           <Text size="caption" dimColor>{title}</Text>
           <Text size="heading" weight="semibold" tabular>{fmtUsd(c.usd)}</Text>
-          <Text size="caption" dimColor tabular>{`${fmtTokens(c.tokens)} tokens`}</Text>
+          <Text size="caption" dimColor tabular>{`${fmtCount(c.tokens)} tokens`}</Text>
         </Box>
       )
       const months = Object.keys(book.months).sort().reverse().slice(0, 6)
@@ -791,7 +791,7 @@ export const register: Register = on => {
     const tone: Tone = percent === undefined ? 'neutral' : limitColor(percent, s.compactAt)
     const isDue = s.showCompact && shouldCompact(snap, s)
     const savings = snap?.tokens !== undefined ? estimateSavings(snap.tokens, s.expectedTurns) : undefined
-    const contextLine = snap?.tokens !== undefined ? `Context ${percent} % · ${fmtTokens(snap.tokens)} / ${fmtTokens(snap.window)}` : 'Context: measured after the first answer'
+    const contextLine = snap?.tokens !== undefined ? `Context ${percent} % · ${fmtCount(snap.tokens)} / ${fmtCount(snap.window)}` : 'Context: measured after the first answer'
     let headline = 'All good'
     let detail = `Compacting pays off from ${s.compactAt} % context.`
     if (!s.showCompact) {
@@ -799,7 +799,7 @@ export const register: Register = on => {
       detail = 'Turn it back on under Settings.'
     } else if (isDue && savings) {
       headline = 'Compact now'
-      detail = `Saves ≈ ${fmtTokens(savings.perTurn)} tokens on every further request.`
+      detail = `Saves ≈ ${fmtCount(savings.perTurn)} tokens on every further request.`
     } else if (snap?.tokens === undefined) {
       headline = 'Ready'
       detail = 'The recommendation appears after the first answer.'
@@ -851,7 +851,7 @@ export const register: Register = on => {
         )}
         {last && last.before !== undefined && payback === 0 && (
           <Box justifyContent="center">
-            <Text size="caption" dimColor>{`Last ${fmtTokens(last.before)} → ${last.after !== undefined ? fmtTokens(last.after) : '?'}: every request ${fmtTokens(saving)} smaller`}</Text>
+            <Text size="caption" dimColor>{`Last ${fmtCount(last.before)} → ${last.after !== undefined ? fmtCount(last.after) : '?'}: every request ${fmtCount(saving)} smaller`}</Text>
           </Box>
         )}
       </Box>

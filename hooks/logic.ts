@@ -48,7 +48,7 @@ export function shouldCompact(snapshot: Snapshot | null, settings: CoachSettings
   )
 }
 
-export function fmtTokens(n: number): string {
+export function fmtCount(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1_000) return `${Math.round(n / 1_000)}k`
 
@@ -169,7 +169,7 @@ export function fmtUsd(usd: number | undefined): string {
 }
 
 export function fmtSigned(tokens: number): string {
-  return tokens < 0 ? `−${fmtTokens(-tokens)}` : fmtTokens(tokens)
+  return tokens < 0 ? `−${fmtCount(-tokens)}` : fmtCount(tokens)
 }
 
 const HOUR = 3_600_000
