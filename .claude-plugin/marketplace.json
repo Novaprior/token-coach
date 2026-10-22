@@ -1,0 +1,13 @@
+{
+  "name": "novaprior",
+  "owner": {
+    "name": "Novaprior"
+  },
+  "description": "Software by Novaprior for Claude Code",
+  "plugins": [
+    {
+      "name": "token-coach",
+      "source": "./"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "token-coach",
+  "displayName": "Token-Coach",
+  "version": "0.4.1",
+  "description": "Shows context, costs and usage limits live, tells you when compacting or a new chat pays off, and helps you write better prompts as you type",
+  "author": {
+    "name": "Novaprior"
+  },
+  "homepage": "https://novaprior.com",
+  "license": "MIT",
+  "keywords": [
+    "tokens",
+    "context",
+    "compact",
+    "costs",
+    "usage limits",
+    "prompts"
+  ],
+  "types": "./types/index.d.ts"
+}
