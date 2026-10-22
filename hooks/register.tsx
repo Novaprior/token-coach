@@ -157,6 +157,12 @@ function scheduleAnalysis($: EngineInterface, text: string) {
   })()
 }
 
+// Puts a draft in the prompt box, and checks it as if it had been typed.
+async function fillDraft($: EngineInterface, text: string) {
+  await $.prompt.fill({ text, mode: 'replace' })
+  scheduleAnalysis($, text)
+}
+
 async function improveDraft($: EngineInterface) {
   const text = (await $.prompt.read()).text || draftText
   if (!text.trim()) return
@@ -279,7 +285,7 @@ async function replaceWord($: EngineInterface, hint: InlineHint, option: string)
   const { text } = await $.prompt.read()
   const at = text.slice(hint.start, hint.end) === hint.word ? hint.start : text.lastIndexOf(hint.word)
   if (at < 0) return
-  await $.prompt.fill({ text: text.slice(0, at) + option + text.slice(at + hint.word.length), mode: 'replace' })
+  await fillDraft($, text.slice(0, at) + option + text.slice(at + hint.word.length))
   await update($, inlineHint, () => null)
 }
 
@@ -354,12 +360,6 @@ export const register: Register = on => {
     return marks.length > 0 ? { ...box, decorations: [...(box.decorations ?? []), ...marks] } : box
   })
 
-  on('prompt.change', ($, e, next) => {
-    scheduleAnalysis($, e.text)
-
-    return next(e)
-  })
-
   on('prompt.submit', async ($, e, next) => {
     draftSeq++
     await update($, inlineHint, () => null)
@@ -392,7 +392,7 @@ export const register: Register = on => {
         pendingDraft = undefined
         void (async () => {
           await $.clock.sleep(300)
-          await $.prompt.fill({ text, mode: 'replace' })
+          await fillDraft($, text)
         })()
       }
     }
@@ -623,7 +623,7 @@ export const register: Register = on => {
                   variant="primary"
                   onPress={() =>
                     void (async () => {
-                      await $.prompt.fill({ text: idea.text ?? '', mode: 'replace' })
+                      await fillDraft($, idea.text ?? '')
                       await update($, suggestion, () => null)
                     })()
                   }
@@ -638,7 +638,7 @@ export const register: Register = on => {
       const templateCard = card('c-templates', 'Templates', (
         <Box gap={1} flexWrap="wrap">
           {TEMPLATES.map(t => (
-            <Button key={`tpl-${t.key}`} label={t.label} onPress={() => void $.prompt.fill({ text: t.text, mode: 'replace' })} />
+            <Button key={`tpl-${t.key}`} label={t.label} onPress={() => void fillDraft($, t.text)} />
           ))}
         </Box>
       ))

@@ -54,7 +54,7 @@ Token-Coach is a mod: it hooks into Claude Code's own events. Every hook below p
 | `turn.step` | Reads each model request's token usage after it completes, to show the context live and price it at list prices. It does not change requests. |
 | `turn.complete` | Notes when the last answer ended and reads the recent messages for the live check. |
 | `session.compact` | Reads the size before and after a compaction to show the new context and what compacting saved. It does not change compactions. |
-| `prompt.edit`, `prompt.change` | Reads your draft as you type for the live check and checklist; underlines vague words in the prompt box. It never changes what you type. |
+| `prompt.edit` | Reads your draft as you type for the live check and checklist; underlines vague words in the prompt box. It never changes what you type. |
 | `prompt.submit` | Clears the live check when you send. It does not change your prompt. |
 | `command.run` (`/token-coach`, `/token-settings`) | Answers its own two commands by opening the panel. |
 | `ui.render` | Draws the panel and the hint bar above the prompt box. |
