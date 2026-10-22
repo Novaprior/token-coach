@@ -15,7 +15,7 @@ import {
   bookCosts,
   cacheReadUsd,
   costOf,
-  monthKey,
+  monthOf,
   projectMonth,
   addSavings,
   clamp,
@@ -44,9 +44,9 @@ import type { ChartRow, Tone } from './visual'
 
 const PANE = 'token-coach'
 const TITLE = 'Token-Coach'
-const SETTINGS_KEY = 'settings'
-const STATS_KEY = 'stats'
-const COSTS_KEY = 'costs'
+const STORED_SETTINGS = 'settings'
+const STORED_STATS = 'stats'
+const STORED_COSTS = 'costs'
 
 const snapshot = atom({ plugin: 'token-coach', key: 'snapshot' } as const, null)
 const settings = atom({ plugin: 'token-coach', key: 'prefs' } as const, DEFAULT_SETTINGS)
@@ -74,7 +74,7 @@ async function recordCost($: EngineInterface, change: Partial<Costs>) {
   await update($, sessionCosts, c => addCosts(c, change))
   const now = await $.clock.now()
   const book = await update($, costBook, b => bookCosts(b, change, now))
-  await $.store.set(COSTS_KEY, book)
+  await $.store.set(STORED_COSTS, book)
 }
 
 // Readings of each limit window (kind and reset), for the last half hour's pace.
@@ -111,7 +111,7 @@ async function credit($: EngineInterface, change: SavingsChange) {
   if (change.timeMs === undefined) change = { ...change, timeMs: await timeFor($, change.usd) }
   await update($, sessionSavings, s => addSavings(s, change))
   const all = await update($, allTimeSavings, s => addSavings(s.since ? s : { ...s, since: new Date().toISOString().slice(0, 10) }, change))
-  await $.store.set(STATS_KEY, all)
+  await $.store.set(STORED_STATS, all)
 }
 
 // What the live check compares a draft with: the recent conversation.
@@ -239,7 +239,7 @@ function toSnapshot(context: SessionContextUsage, rateLimits: readonly SessionRa
 
 async function saveSettings($: EngineInterface, change: (s: CoachSettings) => CoachSettings) {
   await update($, settings, change)
-  await $.store.set(SETTINGS_KEY, await read($, settings))
+  await $.store.set(STORED_SETTINGS, await read($, settings))
 }
 
 // Compacts as if the person sent /compact: the engine queues it until the
@@ -299,20 +299,20 @@ export const register: Register = on => {
   let compactToastAt: number | null = null
 
   on('session.start', async ($, e, next) => {
-    const stored = await $.store.get(SETTINGS_KEY)
+    const stored = await $.store.get(STORED_SETTINGS)
     if (stored && typeof stored === 'object') {
       await update($, settings, () => ({ ...DEFAULT_SETTINGS, ...(stored as Partial<CoachSettings>) }))
     }
     $.ui.status(undefined)
     await refreshRecent($)
-    const stats = await $.store.get(STATS_KEY)
+    const stats = await $.store.get(STORED_STATS)
     if (stats && typeof stats === 'object') await update($, allTimeSavings, () => ({ ...NO_SAVINGS, ...(stats as Partial<Savings>) }))
     await update($, sessionSavings, () => NO_SAVINGS)
     await update($, perRequest, () => 0)
     await $.command.register({ name: 'token-coach', description: 'Open the Token-Coach panel' })
     await $.command.register({ name: 'token-settings', description: 'Open the Token-Coach settings' })
     const usage = await $.session.usage()
-    const book = await $.store.get(COSTS_KEY)
+    const book = await $.store.get(STORED_COSTS)
     if (book && typeof book === 'object') await update($, costBook, () => ({ ...EMPTY_BOOK, ...(book as Partial<CostBook>) }))
     await update($, sessionCosts, () => NO_COSTS)
     ledger.spent = 0
@@ -638,7 +638,7 @@ export const register: Register = on => {
       const templateCard = card('c-templates', 'Templates', (
         <Box gap={1} flexWrap="wrap">
           {TEMPLATES.map(t => (
-            <Button key={`tpl-${t.key}`} label={t.label} onPress={() => void fillDraft($, t.text)} />
+            <Button key={`tpl-${t.id}`} label={t.label} onPress={() => void fillDraft($, t.text)} />
           ))}
         </Box>
       ))
@@ -658,7 +658,7 @@ export const register: Register = on => {
       const inSession = await read($, sessionCosts)
       const book = await read($, costBook)
       const now = await $.clock.now()
-      const month = book.months[monthKey(now)] ?? NO_COSTS
+      const month = book.months[monthOf(now)] ?? NO_COSTS
       const projected = projectMonth(month.usd, now)
       const column = (key: string, title: string, c: Costs) => (
         <Box key={key} flexDirection="column" alignItems="center" flexGrow={1}>

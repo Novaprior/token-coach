@@ -34,8 +34,8 @@ test('the checklist sees goal, place, done criterion and vague words', () => {
   const good = checklist('Behebe den Absturz in src/app.ts:42, sodass der Test login.test.ts grün ist')
   expect(good.map(c => c.state)).toEqual(['ok', 'ok', 'ok'])
   const vague = checklist('mach das irgendwie schöner')
-  expect(vague.find(c => c.key === 'where')?.state).toBe('missing')
-  expect(vague.find(c => c.key === 'vague')?.state).toBe('warn')
+  expect(vague.find(c => c.id === 'where')?.state).toBe('missing')
+  expect(vague.find(c => c.id === 'vague')?.state).toBe('warn')
 })
 
 test('costs add up per month and in total, and project to the month', () => {

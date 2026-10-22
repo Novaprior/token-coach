@@ -247,7 +247,7 @@ export function windowLength(kind: string): number | undefined {
 export const NO_COSTS: Costs = { usd: 0, tokens: 0 }
 export const EMPTY_BOOK: CostBook = { total: NO_COSTS, months: {} }
 
-export function monthKey(ms: number): string {
+export function monthOf(ms: number): string {
   return new Date(ms).toISOString().slice(0, 7)
 }
 
@@ -256,12 +256,12 @@ export function addCosts(c: Costs, change: Partial<Costs>): Costs {
 }
 
 export function bookCosts(book: CostBook, change: Partial<Costs>, now: number): CostBook {
-  const key = monthKey(now)
+  const month = monthOf(now)
 
   return {
     since: book.since ?? new Date(now).toISOString().slice(0, 10),
     total: addCosts(book.total, change),
-    months: { ...book.months, [key]: addCosts(book.months[key] ?? NO_COSTS, change) },
+    months: { ...book.months, [month]: addCosts(book.months[month] ?? NO_COSTS, change) },
   }
 }
 

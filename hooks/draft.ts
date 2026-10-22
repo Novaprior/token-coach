@@ -45,15 +45,15 @@ export function estimateTokens(text: string): number {
 
 export function checklist(text: string): DraftCheck[] {
   const checks: DraftCheck[] = [
-    { key: 'goal', label: 'A clear goal (what should happen?)', state: ACTION.test(text) || text.includes('?') ? 'ok' : 'missing' },
-    { key: 'where', label: 'A place (file, path, line)', state: LOCATION.test(text) ? 'ok' : 'missing' },
-    { key: 'done', label: 'How to tell it is done', state: DONE.test(text) ? 'ok' : 'missing' },
+    { id: 'goal', label: 'A clear goal (what should happen?)', state: ACTION.test(text) || text.includes('?') ? 'ok' : 'missing' },
+    { id: 'where', label: 'A place (file, path, line)', state: LOCATION.test(text) ? 'ok' : 'missing' },
+    { id: 'done', label: 'How to tell it is done', state: DONE.test(text) ? 'ok' : 'missing' },
   ]
   const vague = text.match(VAGUE)
-  if (vague) checks.push({ key: 'vague', label: `Vague: say “${vague[0]}” more precisely`, state: 'warn' })
+  if (vague) checks.push({ id: 'vague', label: `Vague: say “${vague[0]}” more precisely`, state: 'warn' })
   const tasks = (text.match(MULTI) ?? []).length
-  if (tasks >= 2) checks.push({ key: 'multi', label: 'Several tasks: split them or bundle on purpose', state: 'warn' })
-  if (text.length > 3000) checks.push({ key: 'paste', label: 'Long text: cut it to the lines needed or name the file path', state: 'warn' })
+  if (tasks >= 2) checks.push({ id: 'multi', label: 'Several tasks: split them or bundle on purpose', state: 'warn' })
+  if (text.length > 3000) checks.push({ id: 'paste', label: 'Long text: cut it to the lines needed or name the file path', state: 'warn' })
 
   return checks
 }
@@ -99,10 +99,10 @@ export const IMPROVE_SYSTEM =
   'Keep every fact, file path, name and requirement. Where it helps, structure it as: Goal, Where, Requirements, Done when. ' +
   'Invent nothing; where something is missing, put a placeholder in angle brackets. Answer with the improved prompt only.'
 
-export const TEMPLATES: { key: string; label: string; text: string }[] = [
-  { key: 'bugfix', label: 'Bug fix', text: 'Bug: <what happens>\nExpected: <what should happen>\nWhere: <file:line>\nTo reproduce: <steps>\nDone when: <test or observation>' },
-  { key: 'feature', label: 'Feature', text: 'Goal: <what to build>\nWhere: <files or area>\nRequirements:\n- <…>\nDone when: <…>\nDo not change: <…>' },
-  { key: 'refactor', label: 'Refactoring', text: 'Refactor <file or function>\nGoal: <more readable, faster, …>\nBehavior stays the same, tests: <command>\nScope: only <…>' },
-  { key: 'review', label: 'Review', text: 'Review <file or change> for <bugs, security, readability>.\nAnswer as a short list: place, problem, suggestion.' },
-  { key: 'explain', label: 'Explain', text: 'Explain <file or concept> in at most 5 sentences.\nFor: <audience>\nExplain only, change nothing.' },
+export const TEMPLATES: { id: string; label: string; text: string }[] = [
+  { id: 'bugfix', label: 'Bug fix', text: 'Bug: <what happens>\nExpected: <what should happen>\nWhere: <file:line>\nTo reproduce: <steps>\nDone when: <test or observation>' },
+  { id: 'feature', label: 'Feature', text: 'Goal: <what to build>\nWhere: <files or area>\nRequirements:\n- <…>\nDone when: <…>\nDo not change: <…>' },
+  { id: 'refactor', label: 'Refactoring', text: 'Refactor <file or function>\nGoal: <more readable, faster, …>\nBehavior stays the same, tests: <command>\nScope: only <…>' },
+  { id: 'review', label: 'Review', text: 'Review <file or change> for <bugs, security, readability>.\nAnswer as a short list: place, problem, suggestion.' },
+  { id: 'explain', label: 'Explain', text: 'Explain <file or concept> in at most 5 sentences.\nFor: <audience>\nExplain only, change nothing.' },
 ]

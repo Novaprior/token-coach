@@ -38,7 +38,7 @@ export type Savings = {
   since?: string
 }
 
-export type DraftCheck = { key: string; label: string; state: 'ok' | 'missing' | 'warn' }
+export type DraftCheck = { id: string; label: string; state: 'ok' | 'missing' | 'warn' }
 
 export type DraftAdvice = 'newChat' | 'compactFirst'
 
