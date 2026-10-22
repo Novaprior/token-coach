@@ -1,6 +1,5 @@
-// Inline prompt help: precise wordings for vague words, and file paths from
-// this chat, offered in the prompt box's typeahead for the word being typed.
-// Local rules only; no tokens spent.
+// Inline prompt help: vague words in the draft, and precise wordings to put
+// in their place. Local rules only; no tokens spent.
 
 export type InlineSuggestion = { text: string; label?: string; description: string }
 
@@ -106,30 +105,10 @@ export function vagueRanges(text: string): { start: number; end: number }[] {
   return ranges
 }
 
-const FILE = /(?:[\w.-]+[\\/])*[\w-]+\.(?:tsx?|jsx?|mjs|cjs|py|md|json|css|scss|html|ya?ml|toml|sql|sh|ps1|cs|java|go|rs|rb|php|vue|svelte|txt)\b/gi
+export function inlineSuggestions(word: string): InlineSuggestion[] {
+  const fixes = FIXES[bare(word)]
+  if (!fixes) return []
+  const lead = word.match(/^[^\p{L}]*/u)?.[0] ?? ''
 
-// File paths named in a chat's messages, most recent last, without repeats.
-export function extractFiles(text: string): string[] {
-  const seen = new Set<string>()
-  for (const m of text.matchAll(FILE)) seen.add(m[0].replace(/\\\\/g, '\\'))
-
-  return [...seen]
-}
-
-export function inlineSuggestions(token: string, files: readonly string[]): InlineSuggestion[] {
-  const fixes = FIXES[bare(token)]
-  if (fixes) {
-    const lead = token.match(/^[^\p{L}]*/u)?.[0] ?? ''
-
-    return fixes.map(([text, description]) => ({ text: lead + text, description }))
-  }
-  const typed = token.toLowerCase()
-  if (typed.length < 3 || !/^[\w.\\/-]+$/.test(token)) return []
-  const name = (path: string) => path.split(/[\\/]/).pop()?.toLowerCase() ?? ''
-
-  return [...files]
-    .reverse()
-    .filter(f => f.toLowerCase() !== typed && (name(f).startsWith(typed) || f.toLowerCase().includes(typed)))
-    .slice(0, 5)
-    .map(f => ({ text: f, description: 'file from this chat' }))
+  return fixes.map(([text, description]) => ({ text: lead + text, description }))
 }

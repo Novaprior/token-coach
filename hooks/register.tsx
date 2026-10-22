@@ -1,10 +1,10 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionCompactResult, SessionContextUsage, SessionCost, SessionRateLimit } from 'claude-code'
 
-import type { CoachSettings, CostBook, Costs, Savings, Snapshot, Suggestion, Tab } from '../types'
+import type { CoachSettings, CostBook, Costs, InlineHint, Savings, Snapshot, Suggestion, Tab } from '../types'
 import { BYLINE_HEIGHT, BYLINE_WIDTH, byline } from './brand'
 import { IMPROVE_SYSTEM, TEMPLATES, analyzeDraft, keywords } from './draft'
-import { extractFiles, inlineSuggestions, vagueRanges } from './inline'
+import { inlineSuggestions, vagueRanges } from './inline'
 import {
   COMPACT_INSTRUCTIONS,
   DEFAULT_SETTINGS,
@@ -59,6 +59,7 @@ const sessionSavings = atom({ plugin: 'token-coach', key: 'sessionSavings' } as 
 const allTimeSavings = atom({ plugin: 'token-coach', key: 'allTimeSavings' } as const, NO_SAVINGS)
 const sessionCosts = atom({ plugin: 'token-coach', key: 'sessionCosts' } as const, NO_COSTS)
 const costBook = atom({ plugin: 'token-coach', key: 'costBook' } as const, EMPTY_BOOK)
+const inlineHint = atom({ plugin: 'token-coach', key: 'inlineHint' } as const, null)
 const draft = atom({ plugin: 'token-coach', key: 'draft' } as const, null)
 const suggestion = atom({ plugin: 'token-coach', key: 'suggestion' } as const, null)
 const draftDismissed = atom({ plugin: 'token-coach', key: 'draftDismissed' } as const, null)
@@ -114,7 +115,7 @@ async function credit($: EngineInterface, change: SavingsChange) {
 }
 
 // What the live check compares a draft with: the recent conversation.
-const recent = { words: new Set<string>(), files: [] as string[], count: 0, lastTurnAt: undefined as number | undefined }
+const recent = { words: new Set<string>(), count: 0, lastTurnAt: undefined as number | undefined }
 let draftText = ''
 let draftSeq = 0
 // A draft carried over a /clear the coach proposed.
@@ -125,7 +126,6 @@ async function refreshRecent($: EngineInterface) {
   const messages = Array.isArray(found) ? found : []
   recent.count = messages.length
   recent.words = keywords(messages.slice(-12).map(m => m.text).join(' '))
-  recent.files = extractFiles(messages.slice(-40).map(m => `${m.text} ${JSON.stringify(m.toolUses)}`).join(' '))
 }
 
 async function runAnalysis($: EngineInterface, text: string) {
@@ -274,6 +274,15 @@ async function compactNow($: EngineInterface) {
   }
 }
 
+// Puts a precise wording in place of the vague word, where it still stands.
+async function replaceWord($: EngineInterface, hint: InlineHint, option: string) {
+  const { text } = await $.prompt.read()
+  const at = text.slice(hint.start, hint.end) === hint.word ? hint.start : text.lastIndexOf(hint.word)
+  if (at < 0) return
+  await $.prompt.fill({ text: text.slice(0, at) + option + text.slice(at + hint.word.length), mode: 'replace' })
+  await update($, inlineHint, () => null)
+}
+
 async function inlineOn($: EngineInterface): Promise<boolean> {
   return (await read($, settings)).showInline
 }
@@ -329,24 +338,20 @@ export const register: Register = on => {
     const box = await next(e)
     scheduleAnalysis($, box.text)
     if (!(await inlineOn($))) return box
-    // Vague words are underlined; the one just typed gets a hint to take a
-    // precise wording from the typeahead.
-    const marks = vagueRanges(box.text).flatMap(r => [
+    // Vague words are underlined; for the one just typed, precise wordings
+    // wait in the hint bar above the prompt box, a click away.
+    const ranges = vagueRanges(box.text)
+    const here = ranges.find(r => r.end === box.cursor)
+    const word = here ? box.text.slice(here.start, here.end) : undefined
+    await update($, inlineHint, (): InlineHint | null =>
+      here && word ? { start: here.start, end: here.end, word, options: inlineSuggestions(word).map(o => o.text) } : null,
+    )
+    const marks = ranges.flatMap(r => [
       { start: r.start, end: r.end, underline: true, color: 'warning' as const },
-      ...(r.end === box.cursor ? [{ start: r.end, end: r.end, virtualText: '  ↓ Tab: be precise', dimColor: true }] : []),
+      ...(r === here ? [{ start: r.end, end: r.end, virtualText: '  ↑ pick a precise wording', dimColor: true }] : []),
     ])
 
     return marks.length > 0 ? { ...box, decorations: [...(box.decorations ?? []), ...marks] } : box
-  })
-
-  // Precise wordings for a vague word, and file paths from this chat, beneath
-  // the engine's own typeahead rows.
-  on('prompt.autocomplete', async ($, e, next) => {
-    const base = await next(e)
-    if (!(await inlineOn($))) return base
-    const rows = inlineSuggestions(e.token, recent.files)
-
-    return rows.length > 0 ? { suggestions: [...base.suggestions, ...rows] } : base
   })
 
   on('prompt.change', ($, e, next) => {
@@ -357,6 +362,7 @@ export const register: Register = on => {
 
   on('prompt.submit', async ($, e, next) => {
     draftSeq++
+    await update($, inlineHint, () => null)
     await update($, draft, () => null)
     await update($, suggestion, () => null)
     await update($, draftDismissed, () => null)
@@ -477,6 +483,19 @@ export const register: Register = on => {
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     const s = await read($, settings)
     const snap = await read($, snapshot)
+    const hint = (await inlineOn($)) ? await read($, inlineHint) : null
+    if (!e.props.hasSurvey && hint && hint.options.length > 0) {
+      const { Box, Button, Text } = $.ui.resolve(e)
+
+      return (
+        <Box gap={1} alignItems="center" flexWrap="wrap">
+          <Text color="warning" bold>{`● “${hint.word}” is vague:`}</Text>
+          {hint.options.map((option, i) => (
+            <Button key={`inline-${i}`} label={option} onPress={() => void replaceWord($, hint, option)} />
+          ))}
+        </Box>
+      )
+    }
     const live = await read($, draft)
     const dismissed = await read($, draftDismissed)
     if (!e.props.hasSurvey && s.useBand && s.showDraft && live?.advice && dismissed !== live.advice) {
@@ -733,7 +752,7 @@ export const register: Register = on => {
               {toggle('set-limits', 'Usage limits', 'Show and warn about the 5-hour and 7-day limits', 'showLimits')}
               {toggle('set-draft', 'Live check', 'While typing: new chat or stay here?', 'showDraft')}
               {toggle('set-helper', 'Prompt helper', 'Checklist and Improve in the Prompt tab', 'showHelper')}
-              {toggle('set-inline', 'Inline suggestions', 'Precise wordings and file paths while you type, take one with Tab', 'showInline')}
+              {toggle('set-inline', 'Inline suggestions', 'Vague words underlined, precise wordings one click away', 'showInline')}
             </Box>
           ))}
           {card('c-show', 'Display', (

@@ -50,6 +50,9 @@ export type DraftAnalysis = {
   checks: DraftCheck[]
 }
 
+// A vague word just typed, where it stands, and precise wordings for it.
+export type InlineHint = { start: number; end: number; word: string; options: string[] }
+
 export type Suggestion = { status: 'loading' | 'done' | 'error'; text?: string; note?: string }
 
 // What requests cost at API prices, as the session's cost ledger counts it.
@@ -72,6 +75,7 @@ declare module 'claude-code' {
       perRequest: number
       draft: DraftAnalysis | null
       suggestion: Suggestion | null
+      inlineHint: InlineHint | null
       draftDismissed: string | null
       sessionCosts: Costs
       costBook: CostBook
