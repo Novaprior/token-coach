@@ -11,6 +11,7 @@ export const DEFAULT_SETTINGS: CoachSettings = {
   showDraft: true,
   showHelper: true,
   showInline: true,
+  smartInline: false,
   aboUsd: 20,
 }
 

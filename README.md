@@ -7,7 +7,7 @@ Token-Coach shows you, right inside Claude Code, how full your context is, when 
 ## Features
 
 - **Overview:** what you saved this session and all time (tokens, money, more time before the 5-hour limit), the live check while you type, one clear recommendation with a **Compact now** button, and your usage limits with a forecast of when they run out.
-- **Prompt:** a live check while you type (new chat or stay here?), a checklist for better prompts, **Improve** (Claude Haiku rewrites your draft), templates, and inline help while you type: vague words are underlined, and precise wordings to replace them appear in the hint bar above the prompt box, one click away.
+- **Prompt:** a live check while you type (new chat or stay here?), a checklist for better prompts, **Improve** (Claude Haiku rewrites your draft), templates, and inline help while you type: vague words are underlined, and precise wordings to replace them appear beneath the prompt box, **Tab** to take one (or a click in the hint bar above it). Places like `<file>` are filled from the files named in the chat; switched on under Settings, Claude Haiku suggests wordings fitted to the conversation.
 - **Costs:** costs at API list prices per session, month and all time, and a comparison with your subscription.
 - **Settings:** turn every hint on or off and set the thresholds.
 - Commands: `/token-coach` opens the panel, `/token-settings` opens the settings.
@@ -59,14 +59,15 @@ Token-Coach is a mod: it hooks into Claude Code's own events. Every hook below p
 | `turn.complete` | Notes when the last answer ended and reads the recent messages for the live check. |
 | `session.compact` | Reads the size before and after a compaction to show the new context and what compacting saved. It does not change compactions. |
 | `prompt.edit` | Reads your draft as you type for the live check and checklist; underlines vague words in the prompt box. It never changes what you type. |
+| `prompt.autocomplete` | For a vague word at the cursor, adds precise wordings to the typeahead beneath the prompt box; Tab takes one in place of the word. |
 | `prompt.submit` | Clears the live check when you send. It does not change your prompt. |
 | `command.run` (`/token-coach`, `/token-settings`) | Answers its own two commands by opening the panel. |
 | `ui.render` | Draws the panel and the hint bar above the prompt box. |
 
 **Commands it runs:** only when you click **Compact now** (in the panel or the hint bar) does Token-Coach run `/compact` for you, with instructions to keep the current task, decisions, open points and file paths. **New chat** puts `/clear` in your prompt box; you send it yourself.
 
-**Model use:** **Improve** sends your current draft to Claude Haiku through your own Claude Code session (`$.model.complete`), only when you click it, and shows the rewrite for you to accept or discard. Token-Coach reads no credentials, keys or files of its own; it uses Claude Code's session as it is.
+**Model use:** **Improve** sends your current draft to Claude Haiku through your own Claude Code session (`$.model.complete`), only when you click it, and shows the rewrite for you to accept or discard. **Wordings fitted to this chat** (off by default) sends Haiku the vague word, your draft and an excerpt of the last messages, once per vague word and state of the chat. Token-Coach reads no credentials, keys or files of its own; it uses Claude Code's session as it is.
 
 ## Privacy
 
-Token-Coach runs inside Claude Code and sends nothing to any other service. It reads the session's usage figures and the prompt you type to give its advice. **Improve** sends your draft to Claude Haiku through your own Claude Code session, only when you click it. Settings and statistics are stored locally by Claude Code.
+Token-Coach runs inside Claude Code and sends nothing to any other service. It reads the session's usage figures and the prompt you type to give its advice. **Improve** sends your draft to Claude Haiku through your own Claude Code session, only when you click it; **Wordings fitted to this chat**, when you switch it on, sends the vague word, your draft and an excerpt of the last messages the same way. Settings and statistics are stored locally by Claude Code.

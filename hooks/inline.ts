@@ -105,10 +105,76 @@ export function vagueRanges(text: string): { start: number; end: number }[] {
   return ranges
 }
 
-export function inlineSuggestions(word: string): InlineSuggestion[] {
+// What the recent conversation is about: the files it names, newest first,
+// and the code names it mentions. Fills the placeholders of a wording.
+export type ChatContext = { files: string[]; names: string[] }
+
+export const NO_CONTEXT: ChatContext = { files: [], names: [] }
+
+const FILE = /(?:[\w.-]+[\\/])*[\w-]+\.(?:tsx?|jsx?|mjs|py|md|json|css|scss|html|ya?ml|toml|sql|sh|ps1|cs|java|go|rs|rb|php|vue|svelte)\b/g
+const NAME = /`([A-Za-z_][\w.]{2,40})`|\b([a-z]+[A-Z]\w{2,40})\b/g
+
+function newestFirst(found: string[], max: number): string[] {
+  return [...new Set(found.reverse())].slice(0, max)
+}
+
+export function chatContext(texts: readonly string[]): ChatContext {
+  const all = texts.join('\n')
+  const files = newestFirst([...all.matchAll(FILE)].map(m => m[0].replace(/\\/g, '/')), 3)
+  const isFile = new RegExp(`^${FILE.source}$`)
+  const names = newestFirst(
+    [...all.matchAll(NAME)].map(m => m[1] ?? m[2] ?? '').filter(n => n && !isFile.test(n)),
+    3,
+  )
+
+  return { files, names }
+}
+
+const FILE_SLOT = /<(Datei(?:\/Funktion|:Zeile)?|file(?:\/function|:line)?|Bereich|area)>/g
+const FOLDER_SLOT = /<(Ordner|folder)>/g
+
+// The wording with its place placeholders filled from the chat, where it
+// names a file; every other placeholder stays for the person to fill.
+export function fillPlaceholders(text: string, ctx: ChatContext): string {
+  const file = ctx.files[0]
+  if (!file) return text
+  const folder = file.includes('/') ? file.slice(0, file.lastIndexOf('/')) : undefined
+  const filled = text.replace(FILE_SLOT, file)
+
+  return folder ? filled.replace(FOLDER_SLOT, folder) : filled
+}
+
+export function inlineSuggestions(word: string, ctx: ChatContext = NO_CONTEXT): InlineSuggestion[] {
   const fixes = FIXES[bare(word)]
   if (!fixes) return []
   const lead = word.match(/^[^\p{L}]*/u)?.[0] ?? ''
 
-  return fixes.map(([text, description]) => ({ text: lead + text, description }))
+  return fixes.map(([text, description]) => ({ text: lead + fillPlaceholders(text, ctx), description }))
+}
+
+export const CONTEXT_WORDING_SYSTEM =
+  'You help write precise prompts for Claude Code. The user typed a vague word in their draft. ' +
+  'Suggest up to 3 precise replacements for that word that fit the conversation and the draft: name the actual files, ' +
+  'components or goals from the conversation where they fit. Each replacement is a short phrase (under 60 characters) ' +
+  "in the draft's language that reads correctly in place of the word. Answer with the replacements only, one per line, " +
+  'no numbering, no quotes, no explanation.'
+
+export function contextWordingPrompt(word: string, draft: string, ctx: ChatContext, excerpt: string): string {
+  return [
+    `Files in the conversation: ${ctx.files.join(', ') || 'none'}`,
+    `Names in the conversation: ${ctx.names.join(', ') || 'none'}`,
+    `Recent conversation (excerpt):\n${excerpt || '(none)'}`,
+    `Draft:\n${draft}`,
+    `Vague word: ${word}`,
+  ].join('\n\n')
+}
+
+// Haiku's answer as rows: one wording per line, trimmed of list marks.
+export function parseWordings(reply: string): InlineSuggestion[] {
+  return reply
+    .split('\n')
+    .map(l => l.replace(/^\s*(?:[-*•]|\d+[.)])\s*/, '').replace(/^["„“”']|["„“”']$/g, '').trim())
+    .filter(l => l.length > 0 && l.length <= 80)
+    .slice(0, 3)
+    .map(text => ({ text, description: 'fits this chat (Haiku)' }))
 }

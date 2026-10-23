@@ -19,6 +19,8 @@ export type CoachSettings = {
   showDraft: boolean
   showHelper: boolean
   showInline: boolean
+  // Inline wordings fitted to the chat by Claude Haiku; costs a few tokens each.
+  smartInline: boolean
   aboUsd: number
 }
 

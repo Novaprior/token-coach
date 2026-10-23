@@ -25,7 +25,7 @@ const USAGE = {
 }
 
 
-function engine(on: On, saved: Record<string, unknown> = {}) {
+function engine(on: On, saved: Record<string, unknown> = {}, messages: { role: string; text: string; toolUses: [] }[] = []) {
   mock.clock(on, { now: Date.parse('2026-10-22T12:00:00Z') })
   on('store.get', (_, e) => ({ value: saved[e.key] }))
   on('store.set', (_, e) => {
@@ -37,7 +37,7 @@ function engine(on: On, saved: Record<string, unknown> = {}) {
   on('ui.open', () => ({ value: { isPlaced: true } }))
   on('session.usage', () => ({ value: USAGE }))
   on('session.start', (_, e) => ({ cwd: e.cwd }))
-  on('session.messages', () => ({ value: [] }))
+  on('session.messages', () => ({ value: messages }))
   on('ui.status', () => ({ value: undefined }))
 }
 
@@ -275,4 +275,32 @@ test('the prompt tab is open to everyone', async ($, on) => {
   expect(await ui.find({ type: 'Text', text: /^Templates$/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Pro/ })).toBeUndefined()
   await ui.unmount()
+})
+
+test('a vague word gets precise wordings for Tab, fitted to the chat', async ($, on) => {
+  const saved: Record<string, unknown> = {}
+  engine(on, saved, [{ role: 'user', text: 'Das Panel in hooks/register.tsx', toolUses: [] }])
+  on('prompt.autocomplete', () => ({ suggestions: [] }))
+  let asked = 0
+  on('model.complete', () => {
+    asked++
+
+    return { value: { isAnswered: true, text: 'übersichtlicher im Panel\nkompakter in register.tsx', usage: { input_tokens: 300, output_tokens: 20, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 } } }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const local = await $.prompt.autocomplete({ text: 'Mach es alles', cursor: 13, token: 'alles', start: 8 })
+  expect(local.suggestions.map(s => s.text)).toEqual(['alle Dateien in hooks', 'nur hooks/register.tsx'])
+  expect(asked).toBe(0)
+  expect((await $.prompt.autocomplete({ text: 'Mach das Panel', cursor: 14, token: 'Panel', start: 9 })).suggestions).toEqual([])
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'tab-settings' })
+  await ui.press({ key: 'set-smart-inline' })
+  await ui.unmount()
+  const fitted = await $.prompt.autocomplete({ text: 'Mach das Panel besser', cursor: 21, token: 'besser', start: 15 })
+  expect(fitted.suggestions.slice(0, 2).map(s => s.text)).toEqual(['übersichtlicher im Panel', 'kompakter in register.tsx'])
+  expect(fitted.suggestions.length).toBe(5)
+  await $.prompt.autocomplete({ text: 'Mach das Panel besser', cursor: 21, token: 'besser', start: 15 })
+  expect(asked).toBe(1)
 })
