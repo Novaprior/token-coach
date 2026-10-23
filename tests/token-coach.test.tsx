@@ -97,6 +97,26 @@ test('the compact button compacts and reports the sizes', async ($, on) => {
   await ui.unmount()
 })
 
+test('the stored totals keep what another session added meanwhile', async ($, on) => {
+  const saved: Record<string, unknown> = {}
+  engine(on, saved)
+  on('session.compact', () => ({ messages: [{ role: 'user', text: 'Zusammenfassung', toolUses: [] }], tokensBefore: 130_000, tokensAfter: 9_000 }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  // A second session writes its totals after this one started.
+  saved['stats'] = { ...NO_SAVINGS, tokens: 50_000, compactions: 2, requests: 10, since: '2026-10-01' }
+  saved['costs'] = { since: '2026-10-01', total: { usd: 3, tokens: 400_000 }, months: { '2026-10': { usd: 3, tokens: 400_000 } } }
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'compact' })
+
+  const stats = saved['stats'] as { tokens: number; compactions: number; requests: number; since: string }
+  expect({ tokens: stats.tokens, compactions: stats.compactions, requests: stats.requests, since: stats.since }).toEqual({ tokens: -80_000, compactions: 3, requests: 10, since: '2026-10-01' })
+  const costs = saved['costs'] as { total: { tokens: number }; months: Record<string, { tokens: number }> }
+  expect(costs.total.tokens).toBe(530_000)
+  expect(costs.months['2026-10'].tokens).toBe(530_000)
+  await ui.unmount()
+})
+
 test('a setting turned off hides its advice and is stored', async ($, on) => {
   const saved: Record<string, unknown> = {}
   engine(on, saved)
@@ -226,6 +246,21 @@ test('a reached limit says how long to wait and when it resets', async ($, on) =
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
   const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
   expect((await ui.find({ type: 'Text', text: /^5-hour limit/ }))?.text).toMatch(/^5-hour limit: 100 % used, Limit reached: wait 1 h 20 min, Next reset: \d\d:\d\d \(in 1 h 20 min\)$/)
+  await ui.unmount()
+})
+
+test('the overview shows the live check unless it is turned off', async ($, on) => {
+  engine(on)
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^Live check$/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^Start typing/ })).toBeDefined()
+
+  await ui.press({ key: 'tab-settings' })
+  await ui.press({ key: 'set-draft' })
+  await ui.press({ key: 'tab-overview' })
+  expect(await ui.find({ type: 'Text', text: /^Live check$/ })).toBeUndefined()
   await ui.unmount()
 })
 

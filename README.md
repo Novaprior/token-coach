@@ -6,7 +6,7 @@ Token-Coach shows you, right inside Claude Code, how full your context is, when 
 
 ## Features
 
-- **Overview:** what you saved this session and all time (tokens, money, more time before the 5-hour limit), one clear recommendation with a **Compact now** button, and your usage limits with a forecast of when they run out.
+- **Overview:** what you saved this session and all time (tokens, money, more time before the 5-hour limit), the live check while you type, one clear recommendation with a **Compact now** button, and your usage limits with a forecast of when they run out.
 - **Prompt:** a live check while you type (new chat or stay here?), a checklist for better prompts, **Improve** (Claude Haiku rewrites your draft), templates, and inline help while you type: vague words are underlined, and precise wordings to replace them appear in the hint bar above the prompt box, one click away.
 - **Costs:** costs at API list prices per session, month and all time, and a comparison with your subscription.
 - **Settings:** turn every hint on or off and set the thresholds.

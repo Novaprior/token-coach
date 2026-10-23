@@ -70,10 +70,25 @@ const perRequest = atom({ plugin: 'token-coach', key: 'perRequest' } as const, 0
 // model the main thread last used.
 const ledger = { spent: 0, model: undefined as string | undefined }
 
+// Several sessions share the stored totals: each write starts from what is
+// stored now, so one session's additions never overwrite another's.
+async function storedBook($: EngineInterface): Promise<CostBook> {
+  const stored = await $.store.get(STORED_COSTS)
+
+  return stored && typeof stored === 'object' ? { ...EMPTY_BOOK, ...(stored as Partial<CostBook>) } : read($, costBook)
+}
+
+async function storedStats($: EngineInterface): Promise<Savings> {
+  const stored = await $.store.get(STORED_STATS)
+
+  return stored && typeof stored === 'object' ? { ...NO_SAVINGS, ...(stored as Partial<Savings>) } : read($, allTimeSavings)
+}
+
 async function recordCost($: EngineInterface, change: Partial<Costs>) {
   await update($, sessionCosts, c => addCosts(c, change))
   const now = await $.clock.now()
-  const book = await update($, costBook, b => bookCosts(b, change, now))
+  const base = await storedBook($)
+  const book = await update($, costBook, () => bookCosts(base, change, now))
   await $.store.set(STORED_COSTS, book)
 }
 
@@ -110,7 +125,8 @@ async function timeFor($: EngineInterface, usd: number | undefined): Promise<num
 async function credit($: EngineInterface, change: SavingsChange) {
   if (change.timeMs === undefined) change = { ...change, timeMs: await timeFor($, change.usd) }
   await update($, sessionSavings, s => addSavings(s, change))
-  const all = await update($, allTimeSavings, s => addSavings(s.since ? s : { ...s, since: new Date().toISOString().slice(0, 10) }, change))
+  const s = await storedStats($)
+  const all = await update($, allTimeSavings, () => addSavings(s.since ? s : { ...s, since: new Date().toISOString().slice(0, 10) }, change))
   await $.store.set(STORED_STATS, all)
 }
 
@@ -591,12 +607,10 @@ export const register: Register = on => {
       </Box>
     )
 
-    if (current === 'prompt') {
-      const live = await read($, draft)
-      const idea = await read($, suggestion)
-      const mark = { ok: '✓', missing: '○', warn: '!' } as const
-      const markColor = { ok: 'success', missing: 'subtle', warn: 'warning' } as const
-      const liveCard = card('c-live', 'Live check', !live ? (
+    // The live check, in the Prompt tab and on the overview alike.
+    const live = await read($, draft)
+    const liveCard = (where: string) =>
+      card(`c-live-${where}`, 'Live check', !live ? (
         <Text dimColor>Start typing. The check runs as soon as you pause.</Text>
       ) : (
         <Box flexDirection="column">
@@ -606,10 +620,15 @@ export const register: Register = on => {
           {live.reason && <Text>{live.reason}</Text>}
           {live.savingPerRequest !== undefined && <Text size="caption" dimColor>{`Saves ≈ ${fmtCount(live.savingPerRequest)} tokens per request`}</Text>}
           <Text size="caption" dimColor>{`Draft ≈ ${fmtCount(live.tokens)} tokens`}</Text>
-          {live.advice === 'newChat' && <Button key="live-new-chat" label="New chat, keep the draft" variant="primary" onPress={() => void startNewChat($)} />}
-          {live.advice === 'compactFirst' && <Button key="live-compact" label="Compact now" variant="primary" onPress={() => void compactNow($)} />}
+          {live.advice === 'newChat' && <Button key={`live-new-chat-${where}`} label="New chat, keep the draft" variant="primary" onPress={() => void startNewChat($)} />}
+          {live.advice === 'compactFirst' && <Button key={`live-compact-${where}`} label="Compact now" variant="primary" onPress={() => void compactNow($)} />}
         </Box>
       ), live?.advice ? 'warning' : 'subtle')
+
+    if (current === 'prompt') {
+      const idea = await read($, suggestion)
+      const mark = { ok: '✓', missing: '○', warn: '!' } as const
+      const markColor = { ok: 'success', missing: 'subtle', warn: 'warning' } as const
       const helperCard = !s.showHelper ? undefined : card('c-helper', 'Prompt helper', (
         <Box flexDirection="column" gap={1}>
           {live ? (
@@ -655,7 +674,7 @@ export const register: Register = on => {
       return (
         <Box flexDirection="column" gap={1}>
           {header}
-          {s.showDraft && liveCard}
+          {s.showDraft && liveCard('prompt')}
           {helperCard}
           {templateCard}
           {footer}
@@ -919,6 +938,7 @@ export const register: Register = on => {
       <Box flexDirection="column" gap={1}>
         {header}
         {kpiCard}
+        {s.showDraft && liveCard('overview')}
         {hero}
         {limitRow}
         <Box justifyContent="center">
