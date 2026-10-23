@@ -574,15 +574,13 @@ export const register: Register = on => {
     const tabButton = (id: Tab, label: string) => (
       <Button key={`tab-${id}`} label={label} variant={current === id ? 'primary' : 'secondary'} onPress={() => void update($, tab, () => id)} />
     )
+    // The pane's title bar already names it: the tabs come first.
     const header = (
-      <Box flexDirection="column" gap={1}>
-        <Text size="heading" weight="semibold">Token-Coach</Text>
-        <Box gap={1} flexWrap="wrap">
-          {tabButton('overview', 'Overview')}
-          {tabButton('prompt', 'Prompt')}
-          {tabButton('costs', 'Costs')}
-          {tabButton('settings', 'Settings')}
-        </Box>
+      <Box gap={1} flexWrap="wrap">
+        {tabButton('overview', 'Overview')}
+        {tabButton('prompt', 'Prompt')}
+        {tabButton('costs', 'Costs')}
+        {tabButton('settings', 'Settings')}
       </Box>
     )
     // Hovering the logo lights it and reveals the link to novaprior.com.
@@ -853,10 +851,12 @@ export const register: Register = on => {
 
     // What compacting has saved, net of what the compactions cost.
     // The three numbers that matter, large: this session, all time beneath.
+    // The all-time figure gets its own line, so a narrow column never wraps it.
     const kpi = (key: string, value: string, label: string, total: string, isGood: boolean) => (
       <Box key={key} flexDirection="column" alignItems="center" flexGrow={1}>
         <Text size="title" weight="bold" tabular color={isGood ? 'success' : undefined}>{value}</Text>
         <Text size="caption" weight="semibold">{label}</Text>
+        <Text size="caption" dimColor>all time</Text>
         <Text size="caption" dimColor tabular>{total}</Text>
       </Box>
     )
@@ -868,9 +868,9 @@ export const register: Register = on => {
           <Text size="caption" dimColor>Saved this session</Text>
         </Box>
         <Box gap={1} justifyContent="space-around">
-          {kpi('kpi-tokens', fmtSigned(inSession.tokens), 'Tokens', `all time ${fmtSigned(allTime.tokens)}`, inSession.tokens > 0)}
-          {kpi('kpi-usd', usdOf(inSession), 'Money', `all time ${usdOf(allTime)}`, (inSession.usd ?? 0) > 0)}
-          {kpi('kpi-time', fmtGain(inSession.timeMs), 'More time', `all time ${fmtGain(allTime.timeMs)}`, (inSession.timeMs ?? 0) > 0)}
+          {kpi('kpi-tokens', fmtSigned(inSession.tokens), 'Tokens', fmtSigned(allTime.tokens), inSession.tokens > 0)}
+          {kpi('kpi-usd', usdOf(inSession), 'Money', usdOf(allTime), (inSession.usd ?? 0) > 0)}
+          {kpi('kpi-time', fmtGain(inSession.timeMs), 'More time', fmtGain(allTime.timeMs), (inSession.timeMs ?? 0) > 0)}
         </Box>
         {payback > 0 && (
           <Box justifyContent="center">

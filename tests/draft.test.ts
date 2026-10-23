@@ -17,6 +17,12 @@ test('an unrelated draft suggests a new chat, saving the whole context', () => {
   expect(a.savingPerRequest).toBe(60_000)
 })
 
+test('a short or follow-up draft stays in this chat', () => {
+  expect(analyzeDraft('Kannst du die Überschrift entfernen?', BASE).advice).toBeUndefined()
+  expect(analyzeDraft('Schreibe außerdem noch eine Einkaufsliste für Lasagne mit Zutaten und Mengenangaben', BASE).advice).toBeUndefined()
+  expect(analyzeDraft('Schreibe eine Einkaufsliste für Lasagne mit Zutaten und Mengenangaben für vier Personen', { ...BASE, tokens: 20_000 }).advice).toBeUndefined()
+})
+
 test('saying it is a new topic suggests a new chat', () => {
   expect(analyzeDraft('Neues Thema: wie richte ich ein Backup ein?', BASE).advice).toBe('newChat')
 })
@@ -54,7 +60,7 @@ test('saved money buys time before the 5-hour limit', () => {
   expect(timeGained(0.5, 1, 20 / 3_600_000)).toBe(90_000)
   expect(timeGained(0.5, undefined, 1)).toBeUndefined()
   expect(fmtGain(90_000)).toBe('+2 min')
-  expect(fmtGain(undefined)).toBe('–')
+  expect(fmtGain(undefined)).toBe('0 min')
 })
 
 test('requests are priced at the model list price', () => {

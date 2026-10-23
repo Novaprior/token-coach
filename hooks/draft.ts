@@ -21,6 +21,8 @@ export function keywords(text: string): Set<string> {
 }
 
 const NEW_TOPIC = /\b(neues thema|anderes thema|anderes projekt|ganz was anderes|etwas anderes|vergiss (das|alles)|unabhängig davon|new topic|something else|unrelated)\b/i
+// Words that point back at the conversation: a follow-up, not a new topic.
+const FOLLOW_UP = /\b(auch|noch|nochmal|wieder|dazu|davon|daran|darin|dort|oben|unten|weiter|ebenfalls|again|too|as well|still|there)\b/i
 const ACTION =
   /\b(erstell|bau|fix|behebe|änder|ander|füg|schreib|prüf|erklär|implementier|entfern|lösch|refactor|teste|ergänz|optimier|ersetz|verschieb|benenn|zeig|add|fix|create|build|write|remove|explain|update|rename|refactor|test|check|review)/i
 const LOCATION = /([\w-]+\.(tsx?|jsx?|py|md|json|css|scss|html|ya?ml|toml|sql|sh|ps1|cs|java|go|rs|rb|php|vue|svelte))|[\w-]+\/[\w./-]+|\\[\w.\\-]+|:\d+\b|`[^`]+`/i
@@ -71,7 +73,9 @@ export function analyzeDraft(text: string, ctx: DraftContext): DraftAnalysis {
   for (const w of words) if (ctx.recent.has(w)) shared++
   const overlap = words.size === 0 ? 1 : shared / words.size
   const saysNew = NEW_TOPIC.test(text)
-  const isOffTopic = words.size >= 4 && overlap < 0.15
+  // Off topic needs a substantial draft, almost nothing in common, no word
+  // pointing back, and enough context that leaving it behind pays off.
+  const isOffTopic = words.size >= 6 && overlap < 0.1 && !FOLLOW_UP.test(text) && contextTokens >= 30_000
   const isStale = ctx.idleMs !== undefined && ctx.idleMs > 60 * 60_000 && (ctx.percent ?? 0) >= 40
 
   if (saysNew || isOffTopic || isStale) {

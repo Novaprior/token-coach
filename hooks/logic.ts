@@ -283,7 +283,7 @@ export function timeGained(usd: number, usdPerPercent: number | undefined, perce
 }
 
 export function fmtGain(ms: number | undefined): string {
-  if (ms === undefined || Math.abs(ms) < 30_000) return '–'
+  if (ms === undefined || Math.abs(ms) < 30_000) return '0 min'
 
   return `${ms < 0 ? '−' : '+'}${fmtDuration(Math.abs(ms))}`
 }
