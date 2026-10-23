@@ -4,7 +4,7 @@ import type { EngineInterface, Register, SessionCompactResult, SessionContextUsa
 import type { CoachSettings, CostBook, Costs, InlineHint, Savings, Snapshot, Suggestion, Tab } from '../types'
 import { BYLINE_HEIGHT, BYLINE_WIDTH, byline } from './brand'
 import { IMPROVE_SYSTEM, TEMPLATES, analyzeDraft, keywords } from './draft'
-import { CONTEXT_WORDING_SYSTEM, NO_CONTEXT, chatContext, contextWordingPrompt, inlineSuggestions, isVague, parseWordings, vagueRanges } from './inline'
+import { CONTEXT_WORDING_SYSTEM, NO_CONTEXT, chatContext, contextWordingPrompt, inlineSuggestions, parseWordings, vagueRanges } from './inline'
 import type { ChatContext, InlineSuggestion } from './inline'
 import {
   COMPACT_INSTRUCTIONS,
@@ -169,15 +169,13 @@ function askHaiku($: EngineInterface, word: string, draftNow: string): Promise<I
   if (known) return known.pending
   const entry: { rows?: InlineSuggestion[]; pending: Promise<InlineSuggestion[]> } = {
     pending: (async () => {
-      const r = await $.model
-        .complete({
-          model: 'haiku',
-          system: CONTEXT_WORDING_SYSTEM,
-          prompt: contextWordingPrompt(word, draftNow, recent.context, recent.excerpt),
-          maxTokens: 150,
-          timeoutMs: 8_000,
-        })
-        .catch(() => undefined)
+      const prompt = contextWordingPrompt(word, draftNow, recent.context, recent.excerpt)
+      let r: Awaited<ReturnType<EngineInterface['model']['complete']>> | undefined
+      try {
+        r = await $.model.complete({ model: 'haiku', system: CONTEXT_WORDING_SYSTEM, prompt, maxTokens: 150, timeoutMs: 8_000 })
+      } catch {
+        r = undefined
+      }
       const rows = r?.isAnswered ? parseWordings(r.text) : []
       entry.rows = rows
       // A failed answer is asked again next time.
@@ -196,7 +194,7 @@ function askHaiku($: EngineInterface, word: string, draftNow: string): Promise<I
 function wordingsFor(word: string, smart: boolean, haiku: InlineSuggestion[] = []): InlineSuggestion[] {
   const local = inlineSuggestions(word, recent.context)
   const lead = word.match(/^[^\p{L}]*/u)?.[0] ?? ''
-  const fitted = smart ? haiku.map(h => ({ ...h, text: lead + h.text })) : []
+  const fitted = smart ? haiku.map(row => ({ ...row, text: lead + row.text })) : []
   const seen = new Set<string>()
 
   return [...fitted, ...local].filter(s => !seen.has(s.text) && seen.add(s.text))
@@ -228,7 +226,7 @@ function scheduleAnalysis($: EngineInterface, text: string) {
   void (async () => {
     await $.clock.sleep(900)
     if (mine === draftSeq) await runAnalysis($, text)
-  })()
+  })().catch(() => undefined)
 }
 
 // Puts a draft in the prompt box, and checks it as if it had been typed.
@@ -430,28 +428,17 @@ export const register: Register = on => {
     )
     // Haiku's wordings join the hint bar once they arrive, while the word is still the one shown.
     if (here && word && s.smartInline) {
-      void askHaiku($, word, box.text).then(rows =>
-        update($, inlineHint, h => (h && h.word === word && h.start === here.start ? { ...h, options: options(rows) } : h)),
-      )
+      void askHaiku($, word, box.text)
+        .then(rows => update($, inlineHint, shown => (shown && shown.word === word && shown.start === here.start ? { ...shown, options: options(rows) } : shown)))
+        // A session that ended meanwhile has no hint bar to update.
+        .catch(() => undefined)
     }
     const marks = ranges.flatMap(r => [
       { start: r.start, end: r.end, underline: true, color: 'warning' as const },
-      ...(r === here ? [{ start: r.end, end: r.end, virtualText: '  Tab: precise wording', dimColor: true }] : []),
+      ...(r === here ? [{ start: r.end, end: r.end, virtualText: '  ↑ pick a precise wording', dimColor: true }] : []),
     ])
 
     return marks.length > 0 ? { ...box, decorations: [...(box.decorations ?? []), ...marks] } : box
-  })
-
-  // A vague word at the cursor gets precise wordings in the typeahead beneath
-  // the prompt box: Tab takes the highlighted one in place of the word.
-  on('prompt.autocomplete', async ($, e, next) => {
-    const result = await next(e)
-    if (!isVague(e.token) || !(await inlineOn($))) return result
-    const s = await read($, settings)
-    const haiku = s.smartInline ? await askHaiku($, e.token, e.text) : []
-    const rows = wordingsFor(e.token, s.smartInline, haiku).map(o => ({ text: o.text, description: o.description }))
-
-    return { suggestions: [...result.suggestions, ...rows] }
   })
 
   // Bookkeeping around a submission or a compaction never holds it up.
@@ -859,7 +846,7 @@ export const register: Register = on => {
               {toggle('set-limits', 'Usage limits', 'Show and warn about the 5-hour and 7-day limits', 'showLimits')}
               {toggle('set-draft', 'Live check', 'While typing: new chat or stay here?', 'showDraft')}
               {toggle('set-helper', 'Prompt helper', 'Checklist and Improve in the Prompt tab', 'showHelper')}
-              {toggle('set-inline', 'Inline suggestions', 'Vague words underlined, precise wordings with Tab or one click', 'showInline')}
+              {toggle('set-inline', 'Inline suggestions', 'Vague words underlined, precise wordings one click away', 'showInline')}
               {toggle('set-smart-inline', 'Wordings fitted to this chat', 'Claude Haiku suggests them from the conversation; a few tokens each', 'smartInline')}
             </Box>
           ))}

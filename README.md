@@ -7,7 +7,7 @@ Token-Coach shows you, right inside Claude Code, how full your context is, when 
 ## Features
 
 - **Overview:** what you saved this session and all time (tokens, money, more time before the 5-hour limit), the live check while you type, one clear recommendation with a **Compact now** button, and your usage limits with a forecast of when they run out.
-- **Prompt:** a live check while you type (new chat or stay here?), a checklist for better prompts, **Improve** (Claude Haiku rewrites your draft), templates, and inline help while you type: vague words are underlined, and precise wordings to replace them appear beneath the prompt box, **Tab** to take one (or a click in the hint bar above it). Places like `<file>` are filled from the files named in the chat; switched on under Settings, Claude Haiku suggests wordings fitted to the conversation.
+- **Prompt:** a live check while you type (new chat or stay here?), a checklist for better prompts, **Improve** (Claude Haiku rewrites your draft), templates, and inline help while you type: vague words are underlined, and precise wordings to replace them appear in the hint bar above the prompt box, one click away. Places like `<file>` are filled from the files named in the chat; switched on under Settings, Claude Haiku suggests wordings fitted to the conversation.
 - **Costs:** costs at API list prices per session, month and all time, and a comparison with your subscription.
 - **Settings:** turn every hint on or off and set the thresholds.
 - Commands: `/token-coach` opens the panel, `/token-settings` opens the settings.
@@ -59,7 +59,6 @@ Token-Coach is a mod: it hooks into Claude Code's own events. Every hook below p
 | `turn.complete` | Notes when the last answer ended and reads the recent messages for the live check. |
 | `session.compact` | Reads the size before and after a compaction to show the new context and what compacting saved. It does not change compactions. |
 | `prompt.edit` | Reads your draft as you type for the live check and checklist; underlines vague words in the prompt box. It never changes what you type. |
-| `prompt.autocomplete` | For a vague word at the cursor, adds precise wordings to the typeahead beneath the prompt box; Tab takes one in place of the word. |
 | `prompt.submit` | Clears the live check when you send. It does not change your prompt. |
 | `command.run` (`/token-coach`, `/token-settings`) | Answers its own two commands by opening the panel. |
 | `ui.render` | Draws the panel and the hint bar above the prompt box. |

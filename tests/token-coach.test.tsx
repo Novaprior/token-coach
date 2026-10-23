@@ -277,10 +277,34 @@ test('the prompt tab is open to everyone', async ($, on) => {
   await ui.unmount()
 })
 
-test('a vague word gets precise wordings for Tab, fitted to the chat', async ($, on) => {
+const BAND = {
+  plugin: 'token-coach',
+  component: 'AbovePrompt',
+  props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 80, scroll: { offset: 0, bodyRows: 10 } },
+} as const
+
+// Types `word` at the end of `before`, as the prompt box would.
+async function typeWord($: Parameters<Parameters<typeof test>[1]>[0], before: string, word: string) {
+  const at = before.length
+  await $.prompt.edit({ origin: { kind: 'composer' }, text: before, cursor: at, start: at, end: at, inputText: word })
+}
+
+async function hintOptions($: Parameters<Parameters<typeof test>[1]>[0]): Promise<string[]> {
+  const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  const labels: string[] = []
+  for (let i = 0; i < 6; i++) {
+    const b = await ui.find({ key: `inline-${i}` })
+    if (b?.text) labels.push(b.text)
+  }
+  await ui.unmount()
+
+  return labels
+}
+
+test('a vague word gets precise wordings in the hint bar, fitted to the chat', async ($, on) => {
   const saved: Record<string, unknown> = {}
   engine(on, saved, [{ role: 'user', text: 'Das Panel in hooks/register.tsx', toolUses: [] }])
-  on('prompt.autocomplete', () => ({ suggestions: [] }))
+  on('prompt.edit', (_, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
   let asked = 0
   on('model.complete', () => {
     asked++
@@ -289,18 +313,19 @@ test('a vague word gets precise wordings for Tab, fitted to the chat', async ($,
   })
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  const local = await $.prompt.autocomplete({ text: 'Mach es alles', cursor: 13, token: 'alles', start: 8 })
-  expect(local.suggestions.map(s => s.text)).toEqual(['alle Dateien in hooks', 'nur hooks/register.tsx'])
+  await typeWord($, 'Mach es ', 'alles')
+  expect(await hintOptions($)).toEqual(['alle Dateien in hooks', 'nur hooks/register.tsx'])
   expect(asked).toBe(0)
-  expect((await $.prompt.autocomplete({ text: 'Mach das Panel', cursor: 14, token: 'Panel', start: 9 })).suggestions).toEqual([])
 
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await ui.press({ key: 'tab-settings' })
   await ui.press({ key: 'set-smart-inline' })
   await ui.unmount()
-  const fitted = await $.prompt.autocomplete({ text: 'Mach das Panel besser', cursor: 21, token: 'besser', start: 15 })
-  expect(fitted.suggestions.slice(0, 2).map(s => s.text)).toEqual(['übersichtlicher im Panel', 'kompakter in register.tsx'])
-  expect(fitted.suggestions.length).toBe(5)
-  await $.prompt.autocomplete({ text: 'Mach das Panel besser', cursor: 21, token: 'besser', start: 15 })
+  await typeWord($, 'Mach das Panel ', 'besser')
+  await new Promise(resolve => setTimeout(resolve, 20))
+  const fitted = await hintOptions($)
+  expect(fitted.slice(0, 2)).toEqual(['übersichtlicher im Panel', 'kompakter in register.tsx'])
+  expect(fitted.length).toBe(5)
+  await typeWord($, 'Mach das Panel ', 'besser')
   expect(asked).toBe(1)
 })
