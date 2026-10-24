@@ -312,6 +312,13 @@ export function timeGained(usd: number, usdPerPercent: number | undefined, perce
   return usd / usdPerPercent / percentPerMs
 }
 
+// A duration split after its largest unit: "+1 h 32 min" as "+1 h" over "32 min".
+export function durationLines(text: string): string[] {
+  const m = text.match(/^(\S+ (?:d|h)) (.+)$/)
+
+  return m ? [m[1] ?? text, m[2] ?? ''] : [text]
+}
+
 export function fmtGain(ms: number | undefined): string {
   if (ms === undefined || Math.abs(ms) < 30_000) return '0 min'
 

@@ -18,6 +18,7 @@ import {
   costOf,
   monthOf,
   periodCosts,
+  durationLines,
   PRICE_FAMILIES,
   applyCustomPrices,
   builtInPrice,
@@ -1020,9 +1021,12 @@ export const register: Register = on => {
     // What compacting has saved, net of what the compactions cost.
     // The three numbers that matter, large: this session, all time beneath.
     // The all-time figure gets its own line, so a narrow column never wraps it.
-    const kpi = (key: string, value: string, label: string, total: string, isGood: boolean) => (
+    // A large value too wide for its column takes two centered lines.
+    const kpi = (key: string, value: string | string[], label: string, total: string, isGood: boolean) => (
       <Box key={key} flexDirection="column" alignItems="center" flexGrow={1}>
-        <Text size="title" weight="bold" tabular color={isGood ? 'success' : undefined}>{value}</Text>
+        {(Array.isArray(value) ? value : [value]).map(line => (
+          <Text size="title" weight="bold" tabular color={isGood ? 'success' : undefined}>{line}</Text>
+        ))}
         <Text size="caption" weight="semibold">{label}</Text>
         <Text size="caption" dimColor>all time</Text>
         <Text size="caption" dimColor tabular>{total}</Text>
@@ -1038,7 +1042,7 @@ export const register: Register = on => {
         <Box gap={1} justifyContent="space-around">
           {kpi('kpi-tokens', fmtSigned(inSession.tokens), 'Tokens', fmtSigned(allTime.tokens), inSession.tokens > 0)}
           {kpi('kpi-usd', usdOf(inSession), 'Money', usdOf(allTime), (inSession.usd ?? 0) > 0)}
-          {kpi('kpi-time', fmtGain(inSession.timeMs), 'More time', fmtGain(allTime.timeMs), (inSession.timeMs ?? 0) > 0)}
+          {kpi('kpi-time', durationLines(fmtGain(inSession.timeMs)), 'More time', fmtGain(allTime.timeMs), (inSession.timeMs ?? 0) > 0)}
         </Box>
         {payback > 0 && (
           <Box justifyContent="center">

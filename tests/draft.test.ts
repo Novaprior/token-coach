@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { analyzeDraft, checklist, keywords } from '../hooks/draft'
-import { EMPTY_BOOK, applyCustomPrices, bookCosts, fmtMonths, fmtPrice, parsePrice, periodCosts, cacheReadUsd, costOf, fmtClock, fmtGain, forecastAt, priceFor, projectMonth, recentPace, timeGained } from '../hooks/logic'
+import { EMPTY_BOOK, applyCustomPrices, bookCosts, durationLines, fmtMonths, fmtPrice, parsePrice, periodCosts, cacheReadUsd, costOf, fmtClock, fmtGain, forecastAt, priceFor, projectMonth, recentPace, timeGained } from '../hooks/logic'
 
 const CHAT = keywords('Wir bauen das Token-Coach Panel in register.tsx, mit Ringanzeige, Lizenzschlüssel und Komprimieren-Button.')
 const BASE = { percent: 30, tokens: 60_000, compactAt: 60, recent: CHAT, messageCount: 10 }
@@ -139,4 +139,11 @@ test('a typed price is read as input / output / cache read and overrides its fam
   applyCustomPrices(undefined)
   expect(priceFor('claude-opus-5-5').input).toBe(4)
   expect(fmtPrice({ input: 4, output: 20, cacheRead: 0.2 })).toBe('$4 in · $20 out · $0.2 cache')
+})
+
+test('a long duration splits after its largest unit', () => {
+  expect(durationLines('+1 h 32 min')).toEqual(['+1 h', '32 min'])
+  expect(durationLines('−3 d 4 h')).toEqual(['−3 d', '4 h'])
+  expect(durationLines('+11 min')).toEqual(['+11 min'])
+  expect(durationLines('+2 h')).toEqual(['+2 h'])
 })
