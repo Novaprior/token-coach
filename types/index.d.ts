@@ -21,8 +21,17 @@ export type CoachSettings = {
   showInline: boolean
   // Inline wordings fitted to the chat by Claude Haiku; costs a few tokens each.
   smartInline: boolean
+  // API prices the person set, $ per million tokens, over the built-in ones.
+  prices: CustomPrices
   aboUsd: number
 }
+
+export type ModelPrice = { input: number; output: number; cacheRead: number }
+
+// The current models, whose prices can be set under Settings.
+export type PriceFamily = 'fable' | 'opus' | 'sonnet' | 'haiku'
+
+export type CustomPrices = Partial<Record<PriceFamily, ModelPrice>>
 
 export type LastCompact = { before?: number; after?: number }
 
@@ -62,6 +71,9 @@ export type Costs = { usd: number; tokens: number }
 
 export type CostBook = { total: Costs; months: Record<string, Costs>; since?: string }
 
+// The span the long-term comparison of API and subscription covers.
+export type CostPeriod = 'all' | '3m' | '6m'
+
 declare module 'claude-code' {
   interface PluginState {
     'token-coach': {
@@ -81,6 +93,7 @@ declare module 'claude-code' {
       draftDismissed: string | null
       sessionCosts: Costs
       costBook: CostBook
+      costPeriod: CostPeriod
     }
   }
 }

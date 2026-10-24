@@ -8,8 +8,8 @@ Token-Coach shows you, right inside Claude Code, how full your context is, when 
 
 - **Overview:** what you saved this session and all time (tokens, money, more time before the 5-hour limit), the live check while you type, one clear recommendation with a **Compact now** button, and your usage limits with a forecast of when they run out.
 - **Prompt:** a live check while you type (new chat or stay here?), a checklist for better prompts, **Improve** (Claude Haiku rewrites your draft), templates, and inline help while you type: vague words are underlined, and precise wordings to replace them appear in the hint bar above the prompt box, one click away. Places like `<file>` are filled from the files named in the chat; switched on under Settings, Claude Haiku suggests wordings fitted to the conversation.
-- **Costs:** costs at API list prices per session, month and all time, and a comparison with your subscription.
-- **Settings:** turn every hint on or off and set the thresholds.
+- **Costs:** costs at API list prices per session, month and all time, and a comparison with your subscription: this month, and in the long run over all time or the last 3 or 6 months.
+- **Settings:** turn every hint on or off, set the thresholds, and adjust the API prices per model when Anthropic changes them (the Costs tab shows the prices in use).
 - Commands: `/token-coach` opens the panel, `/token-settings` opens the settings.
 
 All figures are estimates. Dollar amounts are at Anthropic's API list prices, also on a subscription.
@@ -63,7 +63,7 @@ Token-Coach is a mod: it hooks into Claude Code's own events. Every hook below p
 | `command.run` (`/token-coach`, `/token-settings`) | Answers its own two commands by opening the panel. |
 | `ui.render` | Draws the panel and the hint bar above the prompt box. |
 
-**Commands it runs:** only when you click **Compact now** (in the panel or the hint bar) does Token-Coach run `/compact` for you, with instructions to keep the current task, decisions, open points and file paths. **New chat** puts `/clear` in your prompt box; you send it yourself.
+**Commands it runs:** only when you click a button. **Compact now** (in the panel or the hint bar) runs `/compact`, with instructions to keep the current task, decisions, open points and file paths. **New chat** runs `/clear` and then puts your draft back in the prompt box. Both wait until no answer is running; where Claude Code refuses to run them, the command is put in your prompt box for you to send.
 
 **Model use:** **Improve** sends your current draft to Claude Haiku through your own Claude Code session (`$.model.complete`), only when you click it, and shows the rewrite for you to accept or discard. **Wordings fitted to this chat** (off by default) sends Haiku the vague word, your draft and an excerpt of the last messages, once per vague word and state of the chat. Token-Coach reads no credentials, keys or files of its own; it uses Claude Code's session as it is.
 

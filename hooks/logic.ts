@@ -1,4 +1,4 @@
-import type { CoachSettings, CostBook, Costs, Limit, Snapshot } from '../types'
+import type { CoachSettings, CostBook, CostPeriod, Costs, CustomPrices, Limit, ModelPrice, PriceFamily, Snapshot } from '../types'
 
 export const DEFAULT_SETTINGS: CoachSettings = {
   showCompact: true,
@@ -12,6 +12,7 @@ export const DEFAULT_SETTINGS: CoachSettings = {
   showHelper: true,
   showInline: true,
   smartInline: false,
+  prices: {},
   aboUsd: 20,
 }
 
@@ -267,6 +268,34 @@ export function bookCosts(book: CostBook, change: Partial<Costs>, now: number): 
 }
 
 // This month's API cost run on to the month's end at the pace so far.
+const MONTH_MS = 30.4375 * 86_400_000
+
+// The API costs over a period and how many subscription months it spans:
+// from the period's first month, or from when counting began where that is
+// later, until now.
+export function periodCosts(book: CostBook, period: CostPeriod, now: number): Costs & { months: number; isPartial: boolean } {
+  const d = new Date(now)
+  const back = period === '3m' ? 2 : period === '6m' ? 5 : undefined
+  const firstMonth = back === undefined ? undefined : monthOf(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - back, 1))
+  const costs =
+    firstMonth === undefined
+      ? book.total
+      : Object.keys(book.months)
+          .filter(m => m >= firstMonth)
+          .reduce((c, m) => addCosts(c, book.months[m] ?? NO_COSTS), NO_COSTS)
+  const periodStart = firstMonth === undefined ? undefined : Date.parse(`${firstMonth}-01T00:00:00Z`)
+  const since = book.since ? Date.parse(`${book.since}T00:00:00Z`) : now
+  const start = periodStart === undefined ? since : Math.max(periodStart, since)
+
+  return { ...costs, months: Math.max(1 / 30, (now - start) / MONTH_MS), isPartial: periodStart !== undefined && since > periodStart }
+}
+
+export function fmtMonths(months: number): string {
+  if (months < 1) return `${Math.max(1, Math.round(months * 30.4375))} days`
+
+  return `${months.toFixed(1)} months`
+}
+
 export function projectMonth(usd: number, now: number): number {
   const d = new Date(now)
   const days = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
@@ -291,22 +320,67 @@ export function fmtGain(ms: number | undefined): string {
 
 // Anthropic list prices in $ per million tokens (as of October 2026).
 // Cache writes cost 1.25x input; cache reads as listed.
-type Price = { input: number; output: number; cacheRead: number }
-const PRICES: [RegExp, Price][] = [
-  [/fable|mythos/, { input: 10, output: 50, cacheRead: 0.25 }],
-  [/opus-5-5|opus-5\.5/, { input: 4, output: 20, cacheRead: 0.2 }],
+// The current models carry a family: its price can be set under Settings.
+const PRICES: [RegExp, ModelPrice, PriceFamily?][] = [
+  [/fable|mythos/, { input: 10, output: 50, cacheRead: 0.25 }, 'fable'],
+  [/opus-5-5|opus-5\.5/, { input: 4, output: 20, cacheRead: 0.2 }, 'opus'],
   [/opus/, { input: 5, output: 25, cacheRead: 0.5 }],
   [/sonnet-4/, { input: 3, output: 15, cacheRead: 0.3 }],
-  [/sonnet/, { input: 2, output: 10, cacheRead: 0.2 }],
+  [/sonnet/, { input: 2, output: 10, cacheRead: 0.1 }, 'sonnet'],
   [/haiku-4/, { input: 1, output: 5, cacheRead: 0.1 }],
-  [/haiku/, { input: 0.1, output: 0.5, cacheRead: 0.01 }],
+  [/haiku/, { input: 0.1, output: 0.5, cacheRead: 0.01 }, 'haiku'],
 ]
-const FALLBACK: Price = { input: 4, output: 20, cacheRead: 0.2 }
+const FALLBACK: ModelPrice = { input: 4, output: 20, cacheRead: 0.2 }
 
-export function priceFor(model: string | undefined): Price {
+export const PRICE_FAMILIES: { id: PriceFamily; label: string }[] = [
+  { id: 'fable', label: 'Fable 5.1' },
+  { id: 'opus', label: 'Opus 5.5' },
+  { id: 'sonnet', label: 'Sonnet 5.5' },
+  { id: 'haiku', label: 'Haiku 5.5' },
+]
+
+// The prices the person set under Settings, over the built-in ones.
+let custom: CustomPrices = {}
+
+export function applyCustomPrices(prices: CustomPrices | undefined) {
+  custom = prices ?? {}
+}
+
+export function builtInPrice(family: PriceFamily): ModelPrice {
+  return PRICES.find(p => p[2] === family)?.[1] ?? FALLBACK
+}
+
+export function familyPrice(family: PriceFamily): ModelPrice {
+  return custom[family] ?? builtInPrice(family)
+}
+
+export function priceFor(model: string | undefined): ModelPrice {
   const id = (model ?? '').toLowerCase()
+  const found = PRICES.find(([match]) => match.test(id))
+  if (!found) return FALLBACK
 
-  return PRICES.find(([match]) => match.test(id))?.[1] ?? FALLBACK
+  return (found[2] && custom[found[2]]) || found[1]
+}
+
+// A price as typed: "input / output / cache read" in $ per million tokens,
+// a comma as decimal point too. Without a cache price, it keeps the ratio
+// the current one has to its input price.
+export function parsePrice(text: string, current: ModelPrice): ModelPrice | undefined {
+  const parts = text
+    .trim()
+    .split(/\s*[/;|]\s*|\s+/)
+    .filter(Boolean)
+    .map(p => Number(p.replace(',', '.')))
+  if (parts.length < 2 || parts.length > 3 || parts.some(n => !Number.isFinite(n) || n < 0 || n > 1000)) return undefined
+  const [input = 0, output = 0, cacheRead = current.input > 0 ? (input * current.cacheRead) / current.input : input / 10] = parts
+
+  return { input, output, cacheRead: Math.round(cacheRead * 10_000) / 10_000 }
+}
+
+export function fmtPrice(p: ModelPrice): string {
+  const n = (x: number) => `$${Number(x.toFixed(4))}`
+
+  return `${n(p.input)} in · ${n(p.output)} out · ${n(p.cacheRead)} cache`
 }
 
 // What one request cost at list price.

@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { analyzeDraft, checklist, keywords } from '../hooks/draft'
-import { EMPTY_BOOK, bookCosts, cacheReadUsd, costOf, fmtClock, fmtGain, forecastAt, priceFor, projectMonth, recentPace, timeGained } from '../hooks/logic'
+import { EMPTY_BOOK, applyCustomPrices, bookCosts, fmtMonths, fmtPrice, parsePrice, periodCosts, cacheReadUsd, costOf, fmtClock, fmtGain, forecastAt, priceFor, projectMonth, recentPace, timeGained } from '../hooks/logic'
 
 const CHAT = keywords('Wir bauen das Token-Coach Panel in register.tsx, mit Ringanzeige, Lizenzschlüssel und Komprimieren-Button.')
 const BASE = { percent: 30, tokens: 60_000, compactAt: 60, recent: CHAT, messageCount: 10 }
@@ -94,4 +94,49 @@ test('reset times read as clock times', () => {
   const now = new Date(2026, 9, 22, 12, 0).getTime()
   expect(fmtClock(new Date(2026, 9, 22, 15, 40).toISOString(), now)).toBe('15:40')
   expect(fmtClock(new Date(2026, 9, 24, 9, 5).toISOString(), now)).toBe('Sat 09:05')
+})
+
+test('a period sums its months and spans the subscription months it covers', () => {
+  const book = {
+    since: '2026-05-01',
+    total: { usd: 160, tokens: 16_000 },
+    months: {
+      '2026-05': { usd: 40, tokens: 4_000 },
+      '2026-08': { usd: 50, tokens: 5_000 },
+      '2026-10': { usd: 70, tokens: 7_000 },
+    },
+  }
+  const now = Date.parse('2026-10-16T00:00:00Z')
+  const all = periodCosts(book, 'all', now)
+  expect(all.usd).toBe(160)
+  expect(Math.round(all.months * 10) / 10).toBe(5.5)
+  expect(all.isPartial).toBe(false)
+  const three = periodCosts(book, '3m', now)
+  expect(three.usd).toBe(120)
+  expect(Math.round(three.months * 10) / 10).toBe(2.5)
+  // Counting began after the 6 months started: only the counted part.
+  const late = periodCosts({ ...book, since: '2026-08-01' }, '6m', now)
+  expect(late.usd).toBe(160)
+  expect(late.isPartial).toBe(true)
+  expect(Math.round(late.months * 10) / 10).toBe(2.5)
+  expect(fmtMonths(0.1)).toBe('3 days')
+  expect(fmtMonths(2.46)).toBe('2.5 months')
+})
+
+test('a typed price is read as input / output / cache read and overrides its family', () => {
+  const opus = priceFor('claude-opus-5-5')
+  expect(parsePrice('5 / 25 / 0,25', opus)).toEqual({ input: 5, output: 25, cacheRead: 0.25 })
+  // Without a cache price, the current ratio to the input price stays.
+  expect(parsePrice('8 40', opus)).toEqual({ input: 8, output: 40, cacheRead: 0.4 })
+  expect(parsePrice('teuer', opus)).toBeUndefined()
+  expect(parsePrice('1 / 2 / 3 / 4', opus)).toBeUndefined()
+  expect(priceFor('claude-sonnet-5-5').cacheRead).toBe(0.1)
+
+  applyCustomPrices({ opus: { input: 5, output: 25, cacheRead: 0.25 } })
+  expect(priceFor('claude-opus-5-5').input).toBe(5)
+  expect(priceFor('claude-opus-4-1').input).toBe(5)
+  expect(priceFor('claude-sonnet-5-5').input).toBe(2)
+  applyCustomPrices(undefined)
+  expect(priceFor('claude-opus-5-5').input).toBe(4)
+  expect(fmtPrice({ input: 4, output: 20, cacheRead: 0.2 })).toBe('$4 in · $20 out · $0.2 cache')
 })

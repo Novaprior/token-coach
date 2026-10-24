@@ -26,7 +26,7 @@ const USAGE = {
 
 
 function engine(on: On, saved: Record<string, unknown> = {}, messages: { role: string; text: string; toolUses: [] }[] = []) {
-  mock.clock(on, { now: Date.parse('2026-10-22T12:00:00Z') })
+  const clock = mock.clock(on, { now: Date.parse('2026-10-22T12:00:00Z') })
   on('store.get', (_, e) => ({ value: saved[e.key] }))
   on('store.set', (_, e) => {
     saved[e.key] = e.value
@@ -39,6 +39,8 @@ function engine(on: On, saved: Record<string, unknown> = {}, messages: { role: s
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.messages', () => ({ value: messages }))
   on('ui.status', () => ({ value: undefined }))
+
+  return clock
 }
 
 test('the savings estimate keeps a tenth as summary, within 2k to 12k', () => {
@@ -328,4 +330,80 @@ test('a vague word gets precise wordings in the hint bar, fitted to the chat', a
   expect(fitted.length).toBe(5)
   await typeWord($, 'Mach das Panel ', 'besser')
   expect(asked).toBe(1)
+})
+
+test('the long-run card compares API and subscription over the chosen period', async ($, on) => {
+  const saved: Record<string, unknown> = {
+    costs: { since: '2026-07-01', total: { usd: 90, tokens: 9_000_000 }, months: { '2026-07': { usd: 30, tokens: 3_000_000 }, '2026-10': { usd: 60, tokens: 6_000_000 } } },
+  }
+  engine(on, saved)
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'tab-costs' })
+  expect(await ui.find({ type: 'Text', text: /^API: ≈ \$90 in 3\.7 months/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^The subscription paid off/ })).toBeDefined()
+  await ui.press({ key: 'period-3m' })
+  expect(await ui.find({ type: 'Text', text: /^API: ≈ \$60 in / })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /^tokens$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('a price set under Settings is stored, shown and priced with', async ($, on) => {
+  const saved: Record<string, unknown> = {}
+  engine(on, saved)
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'tab-settings' })
+  await ui.input({ key: 'set-price-opus-input', text: '5 / 25 / 0.25', kind: 'submit' })
+  expect((saved['settings'] as { prices: Record<string, unknown> }).prices).toEqual({ opus: { input: 5, output: 25, cacheRead: 0.25 } })
+  expect(await ui.find({ type: 'Text', text: /^Opus 5\.5 \(yours\)$/ })).toBeDefined()
+  await ui.press({ key: 'set-price-opus-reset' })
+  expect((saved['settings'] as { prices: Record<string, unknown> }).prices).toEqual({})
+  await ui.press({ key: 'tab-costs' })
+  expect(await ui.find({ type: 'Text', text: /^\$4 in · \$20 out · \$0\.2 cache$/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('the hint bar mentions the AI wordings while they are off', async ($, on) => {
+  engine(on)
+  on('prompt.edit', (_, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await typeWord($, 'Mach das ', 'besser')
+  const band = await $.ui.mount({ ...BAND, surface: 'desktop' })
+  expect(await band.find({ type: 'Text', text: /turn on under Settings$/ })).toBeDefined()
+  await band.unmount()
+})
+
+test('new chat runs /clear and brings the draft back', async ($, on) => {
+  let cleared = 0
+  const fills: string[] = []
+  const clock = engine(on, {}, [
+    { role: 'user', text: 'Wir bauen das Panel in register.tsx mit Ringanzeige', toolUses: [] },
+    { role: 'assistant', text: 'Die Ringanzeige im Panel ist fertig', toolUses: [] },
+  ])
+  on('prompt.edit', (_, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
+  on('prompt.read', () => ({ value: { text: 'Schreibe eine Einkaufsliste für Lasagne mit Zutaten und Mengenangaben für vier Personen', cursor: 0 } }))
+  on('prompt.fill', (_, e) => {
+    fills.push(e.text)
+
+    return { value: { isFilled: true } }
+  })
+  on('command.run', { command: 'clear' }, () => {
+    cleared++
+
+    return { text: '' }
+  })
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await typeWord($, '', 'Schreibe eine Einkaufsliste für Lasagne mit Zutaten und Mengenangaben für vier Personen')
+  await clock.advance(1_000)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  await ui.press({ key: 'tab-prompt' })
+  await ui.press({ key: 'live-new-chat-prompt' })
+  expect(cleared).toBe(1)
+  expect(fills).not.toContain('/clear')
+  await ui.unmount()
 })

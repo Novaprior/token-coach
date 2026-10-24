@@ -1,7 +1,7 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, SessionCompactResult, SessionContextUsage, SessionCost, SessionRateLimit } from 'claude-code'
 
-import type { CoachSettings, CostBook, Costs, InlineHint, Savings, Snapshot, Suggestion, Tab } from '../types'
+import type { CoachSettings, CostBook, CostPeriod, Costs, InlineHint, Savings, Snapshot, Suggestion, Tab } from '../types'
 import { BYLINE_HEIGHT, BYLINE_WIDTH, byline } from './brand'
 import { IMPROVE_SYSTEM, TEMPLATES, analyzeDraft, keywords } from './draft'
 import { CONTEXT_WORDING_SYSTEM, NO_CONTEXT, chatContext, contextWordingPrompt, inlineSuggestions, parseWordings, vagueRanges } from './inline'
@@ -17,6 +17,14 @@ import {
   cacheReadUsd,
   costOf,
   monthOf,
+  periodCosts,
+  PRICE_FAMILIES,
+  applyCustomPrices,
+  builtInPrice,
+  familyPrice,
+  fmtPrice,
+  parsePrice,
+  fmtMonths,
   projectMonth,
   addSavings,
   clamp,
@@ -60,6 +68,7 @@ const sessionSavings = atom({ plugin: 'token-coach', key: 'sessionSavings' } as 
 const allTimeSavings = atom({ plugin: 'token-coach', key: 'allTimeSavings' } as const, NO_SAVINGS)
 const sessionCosts = atom({ plugin: 'token-coach', key: 'sessionCosts' } as const, NO_COSTS)
 const costBook = atom({ plugin: 'token-coach', key: 'costBook' } as const, EMPTY_BOOK)
+const costPeriod = atom({ plugin: 'token-coach', key: 'costPeriod' } as const, 'all')
 const inlineHint = atom({ plugin: 'token-coach', key: 'inlineHint' } as const, null)
 const draft = atom({ plugin: 'token-coach', key: 'draft' } as const, null)
 const suggestion = atom({ plugin: 'token-coach', key: 'suggestion' } as const, null)
@@ -247,10 +256,17 @@ async function improveDraft($: EngineInterface) {
   )
 }
 
+// Runs /clear as if the person sent it, once no answer is running; the
+// session.end hook then puts the draft back. Where running it is refused,
+// /clear waits in the prompt box for the person to send.
 async function startNewChat($: EngineInterface) {
   pendingDraft = (await $.prompt.read()).text || draftText
-  await $.prompt.fill({ text: '/clear', mode: 'replace' })
-  $.ui.toast('Press Enter for the new chat. Your draft comes back afterwards.', { timeoutMs: 8000 })
+  try {
+    await $.command.run({ command: 'clear' })
+  } catch {
+    await $.prompt.fill({ text: '/clear', mode: 'replace' })
+    $.ui.toast('Press Enter for the new chat. Your draft comes back afterwards.', { timeoutMs: 8000 })
+  }
 }
 
 // After a compaction the context is what it left, at once: the engine's
@@ -311,7 +327,9 @@ function toSnapshot(context: SessionContextUsage, rateLimits: readonly SessionRa
 
 async function saveSettings($: EngineInterface, change: (s: CoachSettings) => CoachSettings) {
   await update($, settings, change)
-  await $.store.set(STORED_SETTINGS, await read($, settings))
+  const saved = await read($, settings)
+  applyCustomPrices(saved.prices)
+  await $.store.set(STORED_SETTINGS, saved)
 }
 
 // Compacts as if the person sent /compact: the engine queues it until the
@@ -375,6 +393,7 @@ export const register: Register = on => {
     if (stored && typeof stored === 'object') {
       await update($, settings, () => ({ ...DEFAULT_SETTINGS, ...(stored as Partial<CoachSettings>) }))
     }
+    applyCustomPrices((await read($, settings)).prices)
     $.ui.status(undefined)
     await refreshRecent($)
     const stats = await $.store.get(STORED_STATS)
@@ -586,6 +605,7 @@ export const register: Register = on => {
           {hint.options.map((option, i) => (
             <Button key={`inline-${i}`} label={option} onPress={() => void replaceWord($, hint, option)} />
           ))}
+          {!s.smartInline && <Text size="caption" dimColor>AI wordings fitted to this chat: turn on under Settings</Text>}
         </Box>
       )
     }
@@ -758,9 +778,27 @@ export const register: Register = on => {
         <Box key={key} flexDirection="column" alignItems="center" flexGrow={1}>
           <Text size="caption" dimColor>{title}</Text>
           <Text size="heading" weight="semibold" tabular>{fmtUsd(c.usd)}</Text>
-          <Text size="caption" dimColor tabular>{`${fmtCount(c.tokens)} tokens`}</Text>
+          <Text size="caption" dimColor tabular>{fmtCount(c.tokens)}</Text>
+          <Text size="caption" dimColor>tokens</Text>
         </Box>
       )
+      // The long run: the API's cost over a period against the subscription
+      // for the same time, switchable between all time and the last months.
+      const period = await read($, costPeriod)
+      const span = periodCosts(book, period, now)
+      const periodButton = (id: CostPeriod, label: string) => (
+        <Button key={`period-${id}`} label={label} variant={period === id ? 'primary' : 'secondary'} onPress={() => void update($, costPeriod, () => id)} />
+      )
+      const aboForSpan = s.aboUsd * span.months
+      const spanDiff = span.usd - aboForSpan
+      const spanVerdict =
+        s.aboUsd <= 0 ? (
+          <Text dimColor>Enter your subscription under Settings to see the comparison.</Text>
+        ) : spanDiff >= 0 ? (
+          <Text weight="semibold" color="success">{`The subscription paid off: the API would have cost ≈ ${fmtUsd(spanDiff)} more.`}</Text>
+        ) : (
+          <Text weight="semibold" color="warning">{`The API would have been ≈ ${fmtUsd(-spanDiff)} cheaper than the subscription.`}</Text>
+        )
       const months = Object.keys(book.months).sort().reverse().slice(0, 6)
       let verdict = <Text dimColor>Enter your subscription under Settings to see the comparison.</Text>
       if (s.aboUsd > 0) {
@@ -788,7 +826,31 @@ export const register: Register = on => {
               <Text>{`Projected for the month: ≈ ${fmtUsd(projected)}`}</Text>
               <Text dimColor>{s.aboUsd > 0 ? `Your subscription: ${fmtUsd(s.aboUsd)} per month` : 'No subscription entered'}</Text>
               {verdict}
-              <Text size="caption" dimColor>Anthropic list prices per model (as of Oct 2026), counted since Token-Coach has been running, in Claude Code only. The longer it counts, the more reliable the comparison.</Text>
+              <Text size="caption" dimColor>At the prices listed below, counted since Token-Coach has been running, in Claude Code only. The longer it counts, the more reliable the comparison.</Text>
+            </Box>
+          ))}
+          {card('c-period', 'In the long run', (
+            <Box flexDirection="column" gap={1}>
+              <Box gap={1} flexWrap="wrap">
+                {periodButton('all', 'All time')}
+                {periodButton('3m', '3 months')}
+                {periodButton('6m', '6 months')}
+              </Box>
+              <Text>{`API: ≈ ${fmtUsd(span.usd)} in ${fmtMonths(span.months)} (≈ ${fmtUsd(span.usd / span.months)} per month)`}</Text>
+              {s.aboUsd > 0 && <Text dimColor>{`Subscription for the same time: ≈ ${fmtUsd(aboForSpan)}`}</Text>}
+              {spanVerdict}
+              {span.isPartial && <Text size="caption" dimColor>{`Counted only since ${book.since}: the period is not full yet.`}</Text>}
+            </Box>
+          ))}
+          {card('c-prices', 'Prices used ($ per million tokens)', (
+            <Box flexDirection="column">
+              {PRICE_FAMILIES.map(f => (
+                <Box key={`price-${f.id}`} flexDirection="column">
+                  <Text weight="semibold">{`${f.label}${s.prices[f.id] ? ' (yours)' : ''}`}</Text>
+                  <Text size="caption" dimColor tabular>{fmtPrice(familyPrice(f.id))}</Text>
+                </Box>
+              ))}
+              <Text size="caption" dimColor>Built in as of Oct 2026. Check anthropic.com/pricing and change them under Settings.</Text>
             </Box>
           ))}
           {months.length > 1 &&
@@ -862,6 +924,43 @@ export const register: Register = on => {
               {stepper('set-warn-at', 'Limit warning from', 'limitWarnAt', 5, 50, 95, ' %')}
               {stepper('set-turns', 'Expected further messages', 'expectedTurns', 1, 1, 50, '')}
               {stepper('set-abo', 'Your subscription per month', 'aboUsd', 5, 0, 500, ' $')}
+            </Box>
+          ))}
+          {card('c-set-prices', 'API prices ($ per million tokens)', (
+            <Box flexDirection="column" gap={1}>
+              {PRICE_FAMILIES.map(f => {
+                const mine = s.prices[f.id]
+                const shown = familyPrice(f.id)
+
+                return (
+                  <Box key={`set-price-${f.id}`} flexDirection="column">
+                    <Box gap={1} alignItems="center" justifyContent="space-between">
+                      <Text>{`${f.label}${mine ? ' (yours)' : ''}`}</Text>
+                      {mine && (
+                        <Button
+                          key={`set-price-${f.id}-reset`}
+                          label="Built-in"
+                          onPress={() => void saveSettings($, x => ({ ...x, prices: Object.fromEntries(Object.entries(x.prices).filter(([k]) => k !== f.id)) }))}
+                        />
+                      )}
+                    </Box>
+                    <Text size="caption" dimColor tabular>{fmtPrice(shown)}</Text>
+                    {Input && (
+                      <Input
+                        key={`set-price-${f.id}-input`}
+                        placeholder={`${builtInPrice(f.id).input} / ${builtInPrice(f.id).output} / ${builtInPrice(f.id).cacheRead}`}
+                        submitLabel="Set"
+                        onSubmit={value => {
+                          const next = parsePrice(value, shown)
+                          if (next) void saveSettings($, x => ({ ...x, prices: { ...x.prices, [f.id]: next } }))
+                          else $.ui.toast('Type input / output / cache read, e.g. 4 / 20 / 0.2')
+                        }}
+                      />
+                    )}
+                  </Box>
+                )
+              })}
+              <Text size="caption" dimColor>Input / output / cache read in $. Cache writes count as 1.25 × input.</Text>
             </Box>
           ))}
           <Box justifyContent="center">
