@@ -33,6 +33,8 @@ const MULTI = /(\n\s*[-*•]\s|\n\s*\d+[.)]\s|\b(außerdem|zusätzlich|und dann|
 export type DraftContext = {
   percent?: number
   tokens?: number
+  // What even a fresh chat carries (system prompt, tools, project notes).
+  baseTokens?: number
   compactAt: number
   // Keywords of the conversation's recent messages, and how many there are.
   recent: Set<string>
@@ -85,7 +87,7 @@ export function analyzeDraft(text: string, ctx: DraftContext): DraftAnalysis {
       : isOffTopic
         ? 'The draft has little to do with this chat.'
         : 'Over an hour since the last answer: the cache expired, the old history would be processed again.'
-    analysis.savingPerRequest = contextTokens
+    analysis.savingPerRequest = Math.max(0, contextTokens - (ctx.baseTokens ?? 0))
 
     return analysis
   }

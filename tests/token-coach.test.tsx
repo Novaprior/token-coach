@@ -94,8 +94,10 @@ test('the compact button compacts and reports the sizes', async ($, on) => {
   await ui.press({ key: 'compact' })
 
   expect(instructions).toContain('open points')
-  expect(await ui.find({ type: 'Text', text: /^−130k$/ })).toBeDefined()
-  expect((await ui.find({ type: 'Text', text: /pays for itself/ }))?.text).toBe('Compacting pays for itself after 2 more requests.')
+  // The compaction read 130k and wrote a 9k summary; the money, with the
+  // summary at the output price, takes longer to pay back than the tokens.
+  expect(await ui.find({ type: 'Text', text: /^−139k$/ })).toBeDefined()
+  expect((await ui.find({ type: 'Text', text: /pays for itself/ }))?.text).toBe('Compacting pays for itself after 9 more requests.')
   await ui.unmount()
 })
 
@@ -112,10 +114,10 @@ test('the stored totals keep what another session added meanwhile', async ($, on
   await ui.press({ key: 'compact' })
 
   const stats = saved['stats'] as { tokens: number; compactions: number; requests: number; since: string }
-  expect({ tokens: stats.tokens, compactions: stats.compactions, requests: stats.requests, since: stats.since }).toEqual({ tokens: -80_000, compactions: 3, requests: 10, since: '2026-10-01' })
+  expect({ tokens: stats.tokens, compactions: stats.compactions, requests: stats.requests, since: stats.since }).toEqual({ tokens: -89_000, compactions: 3, requests: 10, since: '2026-10-01' })
   const costs = saved['costs'] as { total: { tokens: number }; months: Record<string, { tokens: number }> }
-  expect(costs.total.tokens).toBe(530_000)
-  expect(costs.months['2026-10'].tokens).toBe(530_000)
+  expect(costs.total.tokens).toBe(539_000)
+  expect(costs.months['2026-10'].tokens).toBe(539_000)
   await ui.unmount()
 })
 

@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import { analyzeDraft, checklist, keywords } from '../hooks/draft'
-import { EMPTY_BOOK, applyCustomPrices, bookCosts, durationLines, fmtMonths, fmtPrice, parsePrice, periodCosts, cacheReadUsd, costOf, fmtClock, fmtGain, forecastAt, priceFor, projectMonth, recentPace, timeGained } from '../hooks/logic'
+import { EMPTY_BOOK, applyCustomPrices, monthDaysCounted, stillSaves, bookCosts, durationLines, fmtMonths, fmtPrice, parsePrice, periodCosts, cacheReadUsd, costOf, fmtClock, fmtGain, forecastAt, priceFor, projectMonth, recentPace, timeGained } from '../hooks/logic'
 
 const CHAT = keywords('Wir bauen das Token-Coach Panel in register.tsx, mit Ringanzeige, Lizenzschlüssel und Komprimieren-Button.')
 const BASE = { percent: 30, tokens: 60_000, compactAt: 60, recent: CHAT, messageCount: 10 }
@@ -146,4 +146,20 @@ test('a long duration splits after its largest unit', () => {
   expect(durationLines('−3 d 4 h')).toEqual(['−3 d', '4 h'])
   expect(durationLines('+11 min')).toEqual(['+11 min'])
   expect(durationLines('+2 h')).toEqual(['+2 h'])
+})
+
+test('a saving counts until the uncompacted chat would have compacted on its own', () => {
+  // 20k now and 121k kept out: 141k, inside 90 % of a 200k window.
+  expect(stillSaves(20_000, 121_000, 200_000)).toBe(true)
+  // 60k now: 181k uncompacted, past 180k.
+  expect(stillSaves(60_000, 121_000, 200_000)).toBe(false)
+  expect(stillSaves(60_000, 121_000, undefined)).toBe(true)
+})
+
+test('the month is projected from the days counted, not from the 1st', () => {
+  const now = new Date(2026, 9, 15, 12).getTime()
+  // Counting began on the 13th: 2.5 days, $10 → $124 over 31 days.
+  expect(Math.round(monthDaysCounted(now, '2026-10-13') * 10) / 10).toBe(2.5)
+  expect(Math.round(projectMonth(10, now, '2026-10-13'))).toBe(124)
+  expect(Math.round(monthDaysCounted(now, '2026-09-01') * 10) / 10).toBe(14.5)
 })

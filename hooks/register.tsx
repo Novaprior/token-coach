@@ -16,6 +16,7 @@ import {
   bookCosts,
   cacheReadUsd,
   costOf,
+  priceFor,
   monthOf,
   periodCosts,
   durationLines,
@@ -27,6 +28,8 @@ import {
   parsePrice,
   fmtMonths,
   projectMonth,
+  stillSaves,
+  monthDaysCounted,
   addSavings,
   clamp,
   crossedLevels,
@@ -102,6 +105,11 @@ async function recordCost($: EngineInterface, change: Partial<Costs>) {
   const book = await update($, costBook, () => bookCosts(base, change, now))
   await $.store.set(STORED_COSTS, book)
 }
+
+// The smallest context a main-thread request of this chat carried: what even
+// a fresh chat sends (system prompt, tools, project notes). A new chat saves
+// the context above it, not all of it.
+let chatBase: number | undefined
 
 // Readings of each limit window (kind and reset), for the last half hour's pace.
 const samples = new Map<string, Sample[]>()
@@ -222,6 +230,7 @@ async function runAnalysis($: EngineInterface, text: string) {
   const result = analyzeDraft(text, {
     percent: snap?.percent,
     tokens: snap?.tokens,
+    baseTokens: chatBase,
     compactAt: s.compactAt,
     recent: recent.words,
     messageCount: recent.count,
@@ -306,14 +315,21 @@ async function refreshLimits($: EngineInterface) {
 }
 
 // A compaction the person or the coach asked for: from now on every request
-// is smaller by the difference, and the compaction's own request is its cost.
+// is smaller by the difference, on top of what an earlier compaction keeps
+// out, and the compaction's own request is its cost: what it read and the
+// summary it wrote. Without the engine's figures, the context read as cache
+// and the summary written as output.
 async function recordCompaction($: EngineInterface, r: SessionCompactResult) {
   if (r.skip !== undefined || r.tokensBefore === undefined || r.tokensAfter === undefined) return
-  await update($, perRequest, () => Math.max(0, (r.tokensBefore ?? 0) - (r.tokensAfter ?? 0)))
-  const usd = r.usage ? costOf(r.usage, ledger.model) : cacheReadUsd(r.tokensBefore, ledger.model)
+  const delta = Math.max(0, r.tokensBefore - r.tokensAfter)
+  await update($, perRequest, n => n + delta)
+  const tokens = r.usage ? inputTokens(r.usage) + r.usage.output_tokens : r.tokensBefore + r.tokensAfter
+  const usd = r.usage
+    ? costOf(r.usage, ledger.model)
+    : cacheReadUsd(r.tokensBefore, ledger.model) + (r.tokensAfter * priceFor(ledger.model).output) / 1_000_000
   ledger.spent += usd
-  await recordCost($, { usd, tokens: r.usage ? inputTokens(r.usage) + r.usage.output_tokens : r.tokensBefore })
-  await credit($, { tokens: -(r.usage ? inputTokens(r.usage) : r.tokensBefore), usd: -usd, compactions: 1 })
+  await recordCost($, { usd, tokens })
+  await credit($, { tokens: -tokens, usd: -usd, compactions: 1 })
 }
 
 function toSnapshot(context: SessionContextUsage, rateLimits: readonly SessionRateLimit[], cost?: SessionCost): Snapshot {
@@ -401,6 +417,7 @@ export const register: Register = on => {
     if (stats && typeof stats === 'object') await update($, allTimeSavings, () => ({ ...NO_SAVINGS, ...(stats as Partial<Savings>) }))
     await update($, sessionSavings, () => NO_SAVINGS)
     await update($, perRequest, () => 0)
+    chatBase = undefined
     await $.command.register({ name: 'token-coach', description: 'Open the Token-Coach panel' })
     await $.command.register({ name: 'token-settings', description: 'Open the Token-Coach settings' })
     const usage = await $.session.usage()
@@ -496,6 +513,7 @@ export const register: Register = on => {
       await update($, sessionSavings, () => NO_SAVINGS)
       await update($, sessionCosts, () => NO_COSTS)
       await update($, perRequest, () => 0)
+      chatBase = undefined
       if (pendingDraft) {
         const text = pendingDraft
         pendingDraft = undefined
@@ -529,7 +547,16 @@ export const register: Register = on => {
       }
       const saved = await read($, perRequest)
       if (e.agentId === undefined && saved > 0) {
-        await credit($, { tokens: saved, usd: cacheReadUsd(saved, ledger.model), requests: 1 })
+        const size = response.usage ? inputTokens(response.usage) + response.usage.output_tokens : undefined
+        if (size !== undefined && !stillSaves(size, saved, (await read($, snapshot))?.window)) {
+          await update($, perRequest, () => 0)
+        } else {
+          await credit($, { tokens: saved, usd: cacheReadUsd(saved, ledger.model), requests: 1 })
+        }
+      }
+      if (e.agentId === undefined && response.usage) {
+        const size = inputTokens(response.usage) + response.usage.output_tokens
+        chatBase = chatBase === undefined ? size : Math.min(chatBase, size)
       }
     } catch {
       // Bookkeeping never stands in the way of a request.
@@ -774,7 +801,9 @@ export const register: Register = on => {
       const book = await read($, costBook)
       const now = await $.clock.now()
       const month = book.months[monthOf(now)] ?? NO_COSTS
-      const projected = projectMonth(month.usd, now)
+      const projected = projectMonth(month.usd, now, book.since)
+      // Under a week of figures, the projection is a guess and says so.
+      const countedDays = monthDaysCounted(now, book.since)
       const column = (key: string, title: string, c: Costs) => (
         <Box key={key} flexDirection="column" alignItems="center" flexGrow={1}>
           <Text size="caption" dimColor>{title}</Text>
@@ -825,6 +854,9 @@ export const register: Register = on => {
           {card('c-abo', 'Subscription or API?', (
             <Box flexDirection="column" gap={1}>
               <Text>{`Projected for the month: ≈ ${fmtUsd(projected)}`}</Text>
+              {countedDays < 7 && (
+                <Text size="caption" dimColor>{`Early estimate: run on from ${Math.max(1, Math.round(countedDays))} day${Math.round(countedDays) === 1 ? '' : 's'} counted so far.`}</Text>
+              )}
               <Text dimColor>{s.aboUsd > 0 ? `Your subscription: ${fmtUsd(s.aboUsd)} per month` : 'No subscription entered'}</Text>
               {verdict}
               <Text size="caption" dimColor>At the prices listed below, counted since Token-Coach has been running, in Claude Code only. The longer it counts, the more reliable the comparison.</Text>
@@ -1033,7 +1065,16 @@ export const register: Register = on => {
       </Box>
     )
     const usdOf = (v: Savings) => fmtUsd(v.usd ?? (v.tokens === 0 ? 0 : undefined))
-    const payback = inSession.tokens < 0 && saving > 0 ? Math.ceil(-inSession.tokens / saving) : 0
+    // Paid back once both the tokens and the money are: the money takes longer,
+    // as the summary is written at the output price.
+    const savingUsd = cacheReadUsd(saving, ledger.model)
+    const payback =
+      saving > 0 && (inSession.tokens < 0 || (inSession.usd ?? 0) < 0)
+        ? Math.max(
+            inSession.tokens < 0 ? Math.ceil(-inSession.tokens / saving) : 0,
+            (inSession.usd ?? 0) < 0 && savingUsd > 0 ? Math.ceil(-(inSession.usd ?? 0) / savingUsd) : 0,
+          )
+        : 0
     const kpiCard = (
       <Box key="kpi" flexDirection="column" gap={1} borderStyle="round" borderColor={inSession.tokens > 0 ? 'success' : 'subtle'} paddingX={1} paddingY={Svg ? 1 : 0}>
         <Box justifyContent="center">
@@ -1114,7 +1155,7 @@ export const register: Register = on => {
         {hero}
         {limitRow}
         <Box justifyContent="center">
-          <Text size="caption" dimColor>Estimates · $ at API prices</Text>
+          <Text size="caption" dimColor>Estimates · $ at API prices · more time assumes only Claude Code uses your limit</Text>
         </Box>
         {footer}
       </Box>

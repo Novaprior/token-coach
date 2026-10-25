@@ -267,7 +267,6 @@ export function bookCosts(book: CostBook, change: Partial<Costs>, now: number): 
   }
 }
 
-// This month's API cost run on to the month's end at the pace so far.
 const MONTH_MS = 30.4375 * 86_400_000
 
 // The API costs over a period and how many subscription months it spans:
@@ -296,12 +295,23 @@ export function fmtMonths(months: number): string {
   return `${months.toFixed(1)} months`
 }
 
-export function projectMonth(usd: number, now: number): number {
+// The days of this month counted so far: from the 1st, or from the day
+// counting began where that is later.
+export function monthDaysCounted(now: number, since?: string): number {
+  const d = new Date(now)
+  const monthStart = new Date(d.getFullYear(), d.getMonth(), 1).getTime()
+  const [y, m, day] = (since ?? '').split('-').map(Number)
+  const began = y && m && day ? new Date(y, m - 1, day).getTime() : monthStart
+
+  return Math.max(1 / 24, (now - Math.max(monthStart, began)) / 86_400_000)
+}
+
+// This month's API cost run on to the month's end at the pace of the days counted.
+export function projectMonth(usd: number, now: number, since?: string): number {
   const d = new Date(now)
   const days = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
-  const elapsed = Math.max(1 / 24, d.getDate() - 1 + d.getHours() / 24)
 
-  return (usd / elapsed) * days
+  return (usd / monthDaysCounted(now, since)) * days
 }
 
 // Extra time before the 5-hour limit that saved money buys: the dollars a
@@ -310,6 +320,17 @@ export function timeGained(usd: number, usdPerPercent: number | undefined, perce
   if (!usdPerPercent || !percentPerMs || usdPerPercent <= 0 || percentPerMs <= 0) return undefined
 
   return usd / usdPerPercent / percentPerMs
+}
+
+// Where Claude Code compacts on its own, as a share of the context window: an
+// assumption on the safe side, so no saving is counted past it.
+export const AUTO_COMPACT_SHARE = 0.9
+
+// Whether a request still saves what compacting kept out: uncompacted, the chat
+// would be its size plus that, and past the point where Claude Code compacts
+// on its own, compacting by hand saves nothing more.
+export function stillSaves(size: number, saved: number, window: number | undefined): boolean {
+  return !window || size + saved <= window * AUTO_COMPACT_SHARE
 }
 
 // A duration split after its largest unit: "+1 h 32 min" as "+1 h" over "32 min".
