@@ -161,8 +161,6 @@ const recent = {
 }
 let draftText = ''
 let draftSeq = 0
-// A draft carried over a /clear the coach proposed.
-let pendingDraft: string | undefined
 
 async function refreshRecent($: EngineInterface) {
   const found = await $.session.messages().catch(() => [])
@@ -185,8 +183,8 @@ function askHaiku($: EngineInterface, word: string, draftNow: string): Promise<I
   const key = wordingKey(word)
   const known = wordings.get(key)
   if (known) return known.pending
-  const entry: { rows?: InlineSuggestion[]; pending: Promise<InlineSuggestion[]> } = {
-    pending: (async () => {
+  const entry: { rows?: InlineSuggestion[]; pending: Promise<InlineSuggestion[]> } = { pending: Promise.resolve([]) }
+  entry.pending = (async () => {
       const prompt = contextWordingPrompt(word, draftNow, recent.context, recent.excerpt)
       let r: Awaited<ReturnType<EngineInterface['model']['complete']>> | undefined
       try {
@@ -200,8 +198,7 @@ function askHaiku($: EngineInterface, word: string, draftNow: string): Promise<I
       if (!r?.isAnswered) wordings.delete(key)
 
       return rows
-    })(),
-  }
+    })()
   wordings.set(key, entry)
 
   return entry.pending
@@ -258,25 +255,39 @@ async function improveDraft($: EngineInterface) {
   const text = (await $.prompt.read()).text || draftText
   if (!text.trim()) return
   await update($, suggestion, () => ({ status: 'loading' }))
-  const r = await $.model.complete({ model: 'haiku', system: IMPROVE_SYSTEM, prompt: text, maxTokens: 800, timeoutMs: 30_000 })
+  let r: Awaited<ReturnType<EngineInterface['model']['complete']>> | undefined
+  try {
+    r = await $.model.complete({ model: 'haiku', system: IMPROVE_SYSTEM, prompt: text, maxTokens: 800, timeoutMs: 30_000 })
+  } catch {
+    r = undefined
+  }
   await update($, suggestion, (): Suggestion =>
-    r.isAnswered
+    r?.isAnswered
       ? { status: 'done', text: r.text.trim(), note: `Cost: ${fmtCount(r.usage.input_tokens + r.usage.output_tokens)} tokens (Haiku)` }
       : { status: 'error', note: 'Improving did not work. Please try again.' },
   )
 }
 
-// Runs /clear as if the person sent it, once no answer is running; the
-// session.end hook then puts the draft back. Where running it is refused,
-// /clear waits in the prompt box for the person to send.
-async function startNewChat($: EngineInterface) {
-  pendingDraft = (await $.prompt.read()).text || draftText
-  try {
-    await $.command.run({ command: 'clear' })
-  } catch {
-    await $.prompt.fill({ text: '/clear', mode: 'replace' })
-    $.ui.toast('Press Enter for the new chat. Your draft comes back afterwards.', { timeoutMs: 8000 })
+type Surface = Parameters<EngineInterface['ui']['copy']>[0]['surface']
+
+// A new chat leaves this one as it is: a plugin cannot open a chat, so the
+// draft goes to the clipboard, for the person to paste into one they open.
+async function startNewChat($: EngineInterface, surface: Surface) {
+  const text = (await $.prompt.read()).text || draftText
+  const advice = (await read($, draft))?.advice
+  if (advice) await update($, draftDismissed, () => advice)
+  if (!text.trim()) {
+    $.ui.toast('Open a new chat for the next topic. This one stays as it is.', { timeoutMs: 10_000 })
+
+    return
   }
+  const copied = await $.ui.copy({ text, surface }).catch(() => undefined)
+  $.ui.toast(
+    copied?.isCopied
+      ? 'Draft copied. Open a new chat and paste it there. This one stays as it is.'
+      : 'Copying did not work: copy your draft, then open a new chat and paste it there.',
+    { timeoutMs: 10_000 },
+  )
 }
 
 // After a compaction the context is what it left, at once: the engine's
@@ -396,6 +407,21 @@ async function replaceWord($: EngineInterface, hint: InlineHint, option: string)
   await update($, inlineHint, () => null)
 }
 
+// Settings and the all-time figures as stored, into the values the panel
+// shows: at the start, and again after /clear, which starts no new
+// session.start but leaves the panel's values empty.
+async function loadStored($: EngineInterface) {
+  const stored = await $.store.get(STORED_SETTINGS)
+  if (stored && typeof stored === 'object') {
+    await update($, settings, () => ({ ...DEFAULT_SETTINGS, ...(stored as Partial<CoachSettings>) }))
+  }
+  applyCustomPrices((await read($, settings)).prices)
+  const stats = await $.store.get(STORED_STATS)
+  if (stats && typeof stats === 'object') await update($, allTimeSavings, () => ({ ...NO_SAVINGS, ...(stats as Partial<Savings>) }))
+  const book = await $.store.get(STORED_COSTS)
+  if (book && typeof book === 'object') await update($, costBook, () => ({ ...EMPTY_BOOK, ...(book as Partial<CostBook>) }))
+}
+
 async function inlineOn($: EngineInterface): Promise<boolean> {
   return (await read($, settings)).showInline
 }
@@ -406,25 +432,18 @@ export const register: Register = on => {
   let compactToastAt: number | null = null
 
   on('session.start', async ($, e, next) => {
-    const stored = await $.store.get(STORED_SETTINGS)
-    if (stored && typeof stored === 'object') {
-      await update($, settings, () => ({ ...DEFAULT_SETTINGS, ...(stored as Partial<CoachSettings>) }))
-    }
-    applyCustomPrices((await read($, settings)).prices)
+    await loadStored($)
     $.ui.status(undefined)
     await refreshRecent($)
-    const stats = await $.store.get(STORED_STATS)
-    if (stats && typeof stats === 'object') await update($, allTimeSavings, () => ({ ...NO_SAVINGS, ...(stats as Partial<Savings>) }))
     await update($, sessionSavings, () => NO_SAVINGS)
     await update($, perRequest, () => 0)
     chatBase = undefined
     await $.command.register({ name: 'token-coach', description: 'Open the Token-Coach panel' })
     await $.command.register({ name: 'token-settings', description: 'Open the Token-Coach settings' })
     const usage = await $.session.usage()
-    const book = await $.store.get(STORED_COSTS)
-    if (book && typeof book === 'object') await update($, costBook, () => ({ ...EMPTY_BOOK, ...(book as Partial<CostBook>) }))
     await update($, sessionCosts, () => NO_COSTS)
     ledger.spent = 0
+    limitBase.resetsAt = undefined
     await update($, snapshot, () => toSnapshot(usage.context, usage.rateLimits, usage.cost))
     sample(usage.rateLimits, await $.clock.now())
     tick?.cancel()
@@ -481,6 +500,7 @@ export const register: Register = on => {
   // Bookkeeping around a submission or a compaction never holds it up.
   on('prompt.submit', async ($, e, next) => {
     draftSeq++
+    draftText = ''
     try {
       await update($, inlineHint, () => null)
       await update($, draft, () => null)
@@ -514,14 +534,12 @@ export const register: Register = on => {
       await update($, sessionCosts, () => NO_COSTS)
       await update($, perRequest, () => 0)
       chatBase = undefined
-      if (pendingDraft) {
-        const text = pendingDraft
-        pendingDraft = undefined
-        void (async () => {
-          await $.clock.sleep(300)
-          await fillDraft($, text)
-        })()
-      }
+      await loadStored($)
+      await update($, draft, () => null)
+      await update($, draftDismissed, () => null)
+      await update($, inlineHint, () => null)
+      await update($, lastCompact, () => null)
+      await update($, notice, () => null)
     }
 
     return result
@@ -573,7 +591,10 @@ export const register: Register = on => {
         await update($, lastCompact, () => ({ before: result.tokensBefore, after: result.tokensAfter }))
         await recordCompaction($, result)
       }
-      if (e.trigger === 'auto' && result.skip === undefined) await update($, perRequest, () => 0)
+      if (e.trigger === 'auto' && result.skip === undefined) {
+        await update($, perRequest, () => 0)
+        await update($, lastCompact, () => null)
+      }
       if (e.trigger !== 'precompute') await applyCompaction($, result)
     } catch {
       // the figures are only behind
@@ -613,7 +634,7 @@ export const register: Register = on => {
       if (compactToastAt !== level) {
         compactToastAt = level
         const savings = estimateSavings(snap.tokens, s.expectedTurns)
-        $.ui.toast(`Context ${snap.percent} %: compacting saves ≈ ${fmtCount(savings.perTurn)} tokens per message`, { timeoutMs: 8000 })
+        $.ui.toast(`Context ${snap.percent} %: compacting saves ≈ ${fmtCount(savings.perTurn)} tokens per request`, { timeoutMs: 8000 })
       }
     }
 
@@ -649,7 +670,7 @@ export const register: Register = on => {
           <Text color="warning" bold>{isNew ? '● New chat?' : '● Compact first?'}</Text>
           <Text>{`${live.reason ?? ''} Saves ≈ ${fmtCount(live.savingPerRequest ?? 0)} tokens per request.`}</Text>
           {isNew ? (
-            <Button key="band-new-chat" label="New chat" variant="primary" onPress={() => void startNewChat($)} />
+            <Button key="band-new-chat" label="Copy draft for a new chat" variant="primary" onPress={press => void startNewChat($, press.surface)} />
           ) : (
             <Button key="band-compact-first" label="Compact" variant="primary" onPress={() => void compactNow($)} />
           )}
@@ -671,7 +692,7 @@ export const register: Register = on => {
     return (
       <Box gap={1} alignItems="center">
         <Text color="warning" bold>● Context {percent} %</Text>
-        <Text>Compacting saves ≈ {fmtCount(savings.perTurn)} tokens per message</Text>
+        <Text>Compacting saves ≈ {fmtCount(savings.perTurn)} tokens per request</Text>
         <Button key="band-compact" label="Compact" variant="primary" onPress={() => void compactNow($)} />
         <Button key="band-later" label="Later" onPress={() => void update($, bandDismissedAt, () => percent)} />
       </Box>
@@ -734,7 +755,7 @@ export const register: Register = on => {
           {live.reason && <Text>{live.reason}</Text>}
           {live.savingPerRequest !== undefined && <Text size="caption" dimColor>{`Saves ≈ ${fmtCount(live.savingPerRequest)} tokens per request`}</Text>}
           <Text size="caption" dimColor>{`Draft ≈ ${fmtCount(live.tokens)} tokens`}</Text>
-          {live.advice === 'newChat' && <Button key={`live-new-chat-${where}`} label="New chat, keep the draft" variant="primary" onPress={() => void startNewChat($)} />}
+          {live.advice === 'newChat' && <Button key={`live-new-chat-${where}`} label="Copy draft for a new chat" variant="primary" onPress={press => void startNewChat($, press.surface)} />}
           {live.advice === 'compactFirst' && <Button key={`live-compact-${where}`} label="Compact now" variant="primary" onPress={() => void compactNow($)} />}
         </Box>
       ), live?.advice ? 'warning' : 'subtle')
@@ -1090,7 +1111,7 @@ export const register: Register = on => {
             <Text size="caption" dimColor>{`Compacting pays for itself after ${payback} more requests.`}</Text>
           </Box>
         )}
-        {last && last.before !== undefined && payback === 0 && (
+        {last && last.before !== undefined && payback === 0 && saving > 0 && (
           <Box justifyContent="center">
             <Text size="caption" dimColor>{`Last ${fmtCount(last.before)} → ${last.after !== undefined ? fmtCount(last.after) : '?'}: every request ${fmtCount(saving)} smaller`}</Text>
           </Box>
@@ -1154,8 +1175,11 @@ export const register: Register = on => {
         {s.showDraft && liveCard('overview')}
         {hero}
         {limitRow}
-        <Box justifyContent="center">
-          <Text size="caption" dimColor>Estimates · $ at API prices · more time assumes only Claude Code uses your limit</Text>
+        {/* Short lines, each centered: a long one wraps flush left. */}
+        <Box flexDirection="column" alignItems="center">
+          <Text size="caption" dimColor>Estimates · $ at API prices</Text>
+          <Text size="caption" dimColor>More time assumes only</Text>
+          <Text size="caption" dimColor>Claude Code uses your limit</Text>
         </Box>
         {footer}
       </Box>

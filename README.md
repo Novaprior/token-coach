@@ -67,7 +67,7 @@ Token-Coach is a mod: it hooks into Claude Code's own events. Every hook below p
 
 | Hook | What Token-Coach does with it |
 |---|---|
-| `session.start`, `session.end` | Loads your settings and statistics, registers its two commands, opens the panel; on `/clear` it resets the session figures and, after **New chat**, puts your draft back in the prompt box. |
+| `session.start`, `session.end` | Loads your settings and statistics, registers its two commands, opens the panel; on `/clear` it resets the session figures and reads your settings and all-time figures back in. |
 | `session.measure` | Reads the context fill, usage limits and session cost to show them and to warn at your thresholds. |
 | `turn.step` | Reads each model request's token usage after it completes, to show the context live and price it at list prices. It does not change requests. |
 | `turn.complete` | Notes when the last answer ended and reads the recent messages for the live check. |
@@ -77,7 +77,9 @@ Token-Coach is a mod: it hooks into Claude Code's own events. Every hook below p
 | `command.run` (`/token-coach`, `/token-settings`) | Answers its own two commands by opening the panel. |
 | `ui.render` | Draws the panel and the hint bar above the prompt box. |
 
-**Commands it runs:** only when you click a button. **Compact now** (in the panel or the hint bar) runs `/compact`, with instructions to keep the current task, decisions, open points and file paths. **New chat** runs `/clear` and then puts your draft back in the prompt box. Both wait until no answer is running. Where Claude Code refuses to run `/compact`, Token-Coach asks Claude Code to compact directly; where that is refused too, or `/clear` is refused, the command is put in your prompt box for you to send.
+**Commands it runs:** only when you click **Compact now** (in the panel or the hint bar) does Token-Coach run `/compact`, with instructions to keep the current task, decisions, open points and file paths. It waits until no answer is running. Where Claude Code refuses to run it, Token-Coach asks Claude Code to compact directly; where that is refused too, `/compact` is put in your prompt box for you to send.
+
+**New chat:** a plugin cannot open a chat, so **Copy draft for a new chat** copies your draft to the clipboard and leaves the current chat as it is. Open a new chat yourself and paste the draft there.
 
 **Model use:** **Improve** sends your current draft to Claude Haiku through your own Claude Code session (`$.model.complete`), only when you click it, and shows the rewrite for you to accept or discard. **Wordings fitted to this chat** (off by default) sends Haiku the vague word, your draft and an excerpt of the last messages, once per vague word and state of the chat. Token-Coach reads no credentials, keys or files of its own; it uses Claude Code's session as it is.
 

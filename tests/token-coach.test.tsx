@@ -1,5 +1,6 @@
 import { expect, mock, test } from 'claude-code/testing'
-import type { On } from 'claude-code'
+import type { On, PromptEditInput } from 'claude-code'
+import type { Engine } from 'claude-code/testing'
 
 import { DEFAULT_SETTINGS, NO_SAVINGS, addSavings, crossedLevels, estimateSavings, fmtDuration, fmtUsd, forecast, inputPrice, savedUsd, shouldCompact, weighted } from '../hooks/logic'
 
@@ -25,7 +26,7 @@ const USAGE = {
 }
 
 
-function engine(on: On, saved: Record<string, unknown> = {}, messages: { role: string; text: string; toolUses: [] }[] = []) {
+function engine(on: On, saved: Record<string, unknown> = {}, messages: { role: 'user' | 'assistant'; text: string; toolUses: [] }[] = []) {
   const clock = mock.clock(on, { now: Date.parse('2026-10-22T12:00:00Z') })
   on('store.get', (_, e) => ({ value: saved[e.key] }))
   on('store.set', (_, e) => {
@@ -117,7 +118,7 @@ test('the stored totals keep what another session added meanwhile', async ($, on
   expect({ tokens: stats.tokens, compactions: stats.compactions, requests: stats.requests, since: stats.since }).toEqual({ tokens: -89_000, compactions: 3, requests: 10, since: '2026-10-01' })
   const costs = saved['costs'] as { total: { tokens: number }; months: Record<string, { tokens: number }> }
   expect(costs.total.tokens).toBe(539_000)
-  expect(costs.months['2026-10'].tokens).toBe(539_000)
+  expect(costs.months['2026-10']?.tokens).toBe(539_000)
   await ui.unmount()
 })
 
@@ -284,16 +285,18 @@ test('the prompt tab is open to everyone', async ($, on) => {
 const BAND = {
   plugin: 'token-coach',
   component: 'AbovePrompt',
-  props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 80, scroll: { offset: 0, bodyRows: 10 } },
+  props: { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 80, scroll: { offset: 0, bodyRows: 10 }, view: {} },
 } as const
 
 // Types `word` at the end of `before`, as the prompt box would.
-async function typeWord($: Parameters<Parameters<typeof test>[1]>[0], before: string, word: string) {
+async function typeWord($: Engine, before: string, word: string) {
   const at = before.length
-  await $.prompt.edit({ origin: { kind: 'composer' }, text: before, cursor: at, start: at, end: at, inputText: word })
+  // The prompt box's edit event, as typing fires it.
+  const prompt = $.prompt as unknown as { edit: (e: PromptEditInput) => Promise<unknown> }
+  await prompt.edit({ origin: { kind: 'composer' }, text: before, cursor: at, start: at, end: at, inputText: word })
 }
 
-async function hintOptions($: Parameters<Parameters<typeof test>[1]>[0]): Promise<string[]> {
+async function hintOptions($: Engine): Promise<string[]> {
   const ui = await $.ui.mount({ ...BAND, surface: 'desktop' })
   const labels: string[] = []
   for (let i = 0; i < 6; i++) {
@@ -326,7 +329,7 @@ test('a vague word gets precise wordings in the hint bar, fitted to the chat', a
   await ui.press({ key: 'set-smart-inline' })
   await ui.unmount()
   await typeWord($, 'Mach das Panel ', 'besser')
-  await new Promise(resolve => setTimeout(resolve, 20))
+  for (let i = 0; i < 50; i++) await Promise.resolve()
   const fitted = await hintOptions($)
   expect(fitted.slice(0, 2)).toEqual(['übersichtlicher im Panel', 'kompakter in register.tsx'])
   expect(fitted.length).toBe(5)
@@ -379,19 +382,26 @@ test('the hint bar mentions the AI wordings while they are off', async ($, on) =
   await band.unmount()
 })
 
-test('new chat runs /clear and brings the draft back', async ($, on) => {
+test('new chat copies the draft and leaves the chat as it is', async ($, on) => {
+  const draftNow = 'Schreibe eine Einkaufsliste für Lasagne mit Zutaten und Mengenangaben für vier Personen'
   let cleared = 0
-  const fills: string[] = []
+  const copies: string[] = []
+  const toasts: string[] = []
   const clock = engine(on, {}, [
     { role: 'user', text: 'Wir bauen das Panel in register.tsx mit Ringanzeige', toolUses: [] },
     { role: 'assistant', text: 'Die Ringanzeige im Panel ist fertig', toolUses: [] },
   ])
   on('prompt.edit', (_, e) => ({ text: e.text.slice(0, e.start) + e.inputText + e.text.slice(e.end), cursor: e.start + e.inputText.length }))
-  on('prompt.read', () => ({ value: { text: 'Schreibe eine Einkaufsliste für Lasagne mit Zutaten und Mengenangaben für vier Personen', cursor: 0 } }))
-  on('prompt.fill', (_, e) => {
-    fills.push(e.text)
+  on('prompt.read', () => ({ value: { text: draftNow, cursor: 0 } }))
+  on('ui.copy', (_, e) => {
+    copies.push(e.text)
 
-    return { value: { isFilled: true } }
+    return { value: { isCopied: true } }
+  })
+  on('ui.toast', (_, e) => {
+    toasts.push(e.text)
+
+    return { value: undefined }
   })
   on('command.run', { command: 'clear' }, () => {
     cleared++
@@ -400,12 +410,25 @@ test('new chat runs /clear and brings the draft back', async ($, on) => {
   })
 
   await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
-  await typeWord($, '', 'Schreibe eine Einkaufsliste für Lasagne mit Zutaten und Mengenangaben für vier Personen')
+  await typeWord($, '', draftNow)
   await clock.advance(1_000)
   const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
   await ui.press({ key: 'tab-prompt' })
   await ui.press({ key: 'live-new-chat-prompt' })
-  expect(cleared).toBe(1)
-  expect(fills).not.toContain('/clear')
+  expect(cleared).toBe(0)
+  expect(copies).toEqual([draftNow])
+  expect(toasts.some(t => t.startsWith('Draft copied. Open a new chat'))).toBe(true)
+  await ui.unmount()
+})
+
+test('after /clear the all-time figures are read back from the store', async ($, on) => {
+  const saved: Record<string, unknown> = { stats: { ...NO_SAVINGS, tokens: 5_000_000, since: '2026-10-01' } }
+  engine(on, saved)
+  on('session.end', () => ({ sessionId: 's' }))
+
+  await $.session.start({ cwd: '/', surface: 'desktop', isInteractive: true })
+  await $.session.end({ reason: 'clear' } as never)
+  const ui = await $.ui.mount({ ...PANE, surface: 'desktop' })
+  expect(await ui.find({ type: 'Text', text: /^5\.0M$/ })).toBeDefined()
   await ui.unmount()
 })
